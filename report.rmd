@@ -3,5 +3,126 @@ title: "CYO-project | HarvardX"
 author: "Marco Schicker"
 date: "14 5 2021"
 output: pdf_document
+ toc: true
+    toc_depth: 2
+    number_sections: true
+
 ---
 
+``` {r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, Message=FALSE, fig.width=6, fig.height=4)
+
+#######INSTALL PACKAGES#######
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(gam)) install.packages("gam", repos = "http://cran.us.r-project.org")
+
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(lubridate)
+library(corrplot)
+library(rpart)
+library(matrixStats)
+library(gam)
+library(splines)
+---
+
+```
+
+
+# Executive summary  
+
+The current corona crisis and past crisis like in 2008 have shown over and over again that companies that are not able to react fast enough and have too much capital bound along their supply chain have a problem to adapt and an increased risk for bankruptcy. 
+In order to form resilient, effective and efficient supply chains lead times are a very central key performance indicator (KPI) to optimize. Any change you make to a process will take at least one avg lead time to show effect. If your lead times are at 100 working days - which is not so uncommon and can be much longer in many cases - you will have a reaction time of almost half a year for most measures to kick in in case of a crisis. This can be too long for some companies and will make a timely check of measures almost impossible. 
+
+The goal of this project is to predict lead times at the time of ordering by the customer, depending on product, the sales channel, sales organization, the production site and seasonal trends, along with what data we can get out of the ERP. In order to do this we will analyze system logs of all sales orders from the last years.
+
+
+# Background information  
+
+## Lead time  
+
+When talking about lead time we make a difference between the length and the volatility/reliability of lead time.
+  
+- A short lead time of material throughout the whole supply chain means that material takes the most direct route between producer and customer, not being stocked, reworked, stopped for any reason other than having value added to it. This concept of focusing on lead time is well-known from LEAN Management. Any activity done to the product that doesn´t increase the value from customer perspective is considered waste. The target is to eliminate waste as much as possible and reduce necessary waste as much as possible.  
+- A low volatility of lead time makes a supply chain more predictable, regardless of how short or long it may be. This will help any company to give reliable information to customers, provide a good Level of Service (LoS) and overall increase trust in the company´s performance. Further, a predictable supply chain enables us to reduce safety stocks and hence, reduce the capital employed significantly. Last but not least a low volatility makes it much easier to automate and level production flow. In order to compare very different lead times we use the coefficient of variation, which is the    
+
+  
+## Order tracking  
+Most companies work with so called order status updates once a concrete order has passed particular milestones, e.g. manufactured, packed, shipped, delivered, etc... Based on the business model and the setup of the supply chain these stati differ and are adapted to the company´s needs. The data can be spread between different systems (ERP, CRM, web shop, 3rd party applications) and needs to be stitched together to create a conclusive data set.
+
+## Company description  
+The company that we will use to showcase ML in lead time prediction is a european supply of shading solutions. Manufacturing sites and sales organizations exist in multiple countries. The business model follows a mixed approach of B2B2C and B2C, that means running own organizations that provide consulting, installation and service to final customers as well as selling product to retailers. This makes it more challenging as all orders run through the same factories but serve different business models and different supply chains. The final target is the same though: reducing lead time to be agile and have less 
+
+
+
+
+# Methods & Analysis
+The process to train the models consists of the following basic steps:  
+
+- Data import
+- Data exploration, cleaning and visualization
+- Data mutation
+- Creating training and test set
+- Training and comparing different models
+- Validation of best model
+
+## Data import
+
+
+## Data exploration, cleaning and visualization
+
+In order to work with the data set it is analyzed and altered.
+
+### Overall analysis
+To get a first overview about the data the following table is created:
+
+
+The dimensions of the data file are as follows:  
+
+
+The data classes are shown in the following table
+
+
+### Find duplicate entries
+
+
+### Find predictors that are highly correlated and remove if necessary
+
+
+### Remove predictors with near zero variation
+
+
+#### Average and distribution  
+
+
+
+##### Histograms  
+
+
+##### Distributions of orders per order status 
+
+
+## Insights gained  
+
+
+
+
+
+## Modeling approach
+
+
+
+
+# Results
+
+
+
+# Conclusion
