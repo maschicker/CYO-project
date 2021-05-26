@@ -71,8 +71,8 @@ O2C <- O2C %>% mutate(country = as.factor(country),
                       corr_project = as.factor(corr_project),
                       divisiongroup = as.factor(divisiongroup),
                       channel_name = as.factor(channel_name)
-                      )%>%
-               select(-"mod_dt", -"division.y", -"division.x", -"status_name")
+)%>%
+  select(-"mod_dt", -"division.y", -"division.x", -"status_name")
 
 ### how many unique sales_ID (=order lines)?
 n_distinct(O2C$salesID)
@@ -127,7 +127,7 @@ O2C_wide <- O2C %>% pivot_wider(
 
 O2C_wide <- O2C_wide %>% mutate(order_complete = (!is.na(created_dt_A400)),
                                 total_lt = created_dt_A400 - created_dt_A105
-                                )
+)
 
 ### look for duplicate entries
 problems <- which(duplicated(O2C_wide))
