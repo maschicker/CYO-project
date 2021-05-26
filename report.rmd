@@ -42,7 +42,7 @@ library(splines)
 The current corona crisis and past crisis like in 2008 have shown over and over again that companies that are not able to react fast enough and have too much capital bound along their supply chain have a problem to adapt and an increased risk for bankruptcy. 
 In order to form resilient, effective and efficient supply chains lead times are a very central key performance indicator (KPI) to optimize. Any change you make to a process will take at least one avg lead time to show effect. If your lead times are at 100 working days - which is not so uncommon and can be much longer in many cases - you will have a reaction time of almost half a year for most measures to kick in in case of a crisis. This can be too long for some companies and will make a timely check of measures almost impossible. 
 
-The goal of this project is to predict Order-to-Casch (O2C) lead times at the time of ordering by the customer, depending on product, the sales channel, sales organization, the production site and seasonal trends, along with what data we can get out of the ERP. In order to do this we will analyze system logs of all sales orders from the couple years.
+The goal of this project is to predict Order-to-Casch (O2C) lead times at the time of ordering by the customer, depending on product, the sales channel, sales organization, the production site and seasonal trends, along with what data we can get out of the ERP. In order to do this we will analyze system logs of all sales orders from the last couple years.
 
 
 # Background information  
@@ -133,7 +133,7 @@ The Status IDs are especially interesting as they mark different gates that our 
 - A400 - invoice proposal finished
 - A410 - invoice sent to customer. This status is the last one in the system but unfortunately not part of the data received. However we can calculate it by taking the A400 timestamp and add the duration in A400 in days
 
-For this analysis we will start with A105, because that is the status from which onward the order must flow. In status A000 and A100 the order can be used for prediction but doesn´t cause much trouble if staying there for a long time. We will drop A000, as the average duration is very short. A100 will not be used for calculation of total lead time but will be kept for analysis purposes and to visualize the production funnel. Further we will drop A320 as it is a not widely used intermediate statusID, there is only 1 occurrence. 
+For this analysis we will start with A105, because that is the status from which onward the order must flow. In status A000 and A100 the order can be used for prediction but doesn´t cause much trouble if staying there for a long time. We will keep A000, because the data shows that most orders pass through this state (in theory all must pass through this state). We will use the timestamp of the A000 state to create predictors for year, month and day. A100 will not be used for calculation of total lead time but will be kept for analysis purposes and to visualize the production funnel. Further we will drop A320 as it is a not widely used intermediate statusID, there is only 1 occurrence. 
 
 
 ### Exclude special cases (correction projects, "90x" products, Service orders and Inter company orders)  
@@ -145,11 +145,21 @@ Orders and projects that are marked as _SERV_ in the column _divisiongroup_ show
 
 Lastly, the data also include _intercompany orders_ which need to be excluded from analysis as they have a digital twin in one of the countries.
 
+### Find duplicate entries
+```{r}
+
+```
+
+
+
+
 ### Convert to wide data
 
 The data table shows one observation per status change of any order. Since we want to predict the total lead time for a complete order we need one observation per order (=salesID) and transform our data frame so that we have the different timestamps per status change in columns and add a column for total lead time. 
 
-We can find `r n_distinct(O2C$salesID)` individual orders in the data set.
+We can find `r n_distinct(O2C$salesID)` individual orders in the data set.  
+
+#### Prepare data
 
 The problem we face is the fact that even though in theory an order cannot pass through the same status twice we can find exactly those cases in the data set. Out of `r nrow(O2C)` rows we can identify `r O2C %>% find_duplicates(salesID, statusID) %>% nrow()` cases of duplicate combinations of salesID and statusID.
 
@@ -169,18 +179,29 @@ O2C_wide <- O2C %>% pivot_wider(
                     )
 ```
 
-
-
+  
+#### Add new columns  
 
 To prepare for modeling we will create new columns to differentiate between different kind of orders  
 - total_lt - total lead time from beginning to end, defined as the difference between the timestamp A400 and A105 plus the duration in status A400. Remember that an invoice sent is status A410, for which we don´t have a timestamp. 
 - order_complete - a binary variable which is 1 if there is a A400 timestamp and 0 if not. 0 means that the order has dropped out of the system at some point. 
 
+#### Check new wide data frame
+
+As a first check we need to find out how many orders are complete and exclude all incomplete orders. As check criteria we assume that any complete order has a valid timestamp for statusID=A400 (= invoice proposal created). We can see that only a proportion of `r mean(O2C_wide$order_complete)` of all orders are complete. A deep dive reveals the amount of incomplete orders per year.
+```{r incomplete orders per year}
 
 
 
+```
 
-### Find duplicate entries
+These orders are deleted from the data set.
+The next check is for NA´s in any of the statusID columns. An _NA_ means that the corresponding order has not gone through a particular statusID. That can be ok and normal in some cases as orders from partner business usually don´t pass some of the orderstatus for direct sales (e.g. installation completed because installation is not part of their business model). However, we can see that there are quite a few orders that have never been created or opened in the first place (NA in column A000 or A100). These orders might have been opened in previous years, so we need to erase them as well to not bias the data.
+
+For the next check we need to look back at the purpose of this project and combine it with the insights gained.. 
+We want to predict lead times at the time of ordering. Because we don´t know the preferred delivery date we assume our supply chain should deliver according to its capabilities. That is why we need to look at orders that also pass the status A105 which means that the product has been planned in the factory. As we could see we still have some orders that don´t pass that status. 
+For those orders we will copy the date from A100 to the A105 column.
+
 
 
 ### Find predictors that are highly correlated and remove if necessary
@@ -190,10 +211,11 @@ To prepare for modeling we will create new columns to differentiate between diff
 
 
 ### Average and distribution  
+The total lead time is distributed among the whole data as follows:
+```{r}
 
+```
 
-
-### Histograms  
 
 
 ### Distributions of orders per order status 
@@ -201,6 +223,8 @@ To prepare for modeling we will create new columns to differentiate between diff
 
 ## Insights gained  
 
+A first insight is that the system data contains a very big amount of orders that obviously didn´t follow the standard process. We started out with `r orig_salesID` unique orders and deleted the following:  
+1. 
 
 
 
