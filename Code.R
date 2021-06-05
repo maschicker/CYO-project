@@ -13,7 +13,6 @@ if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-pr
 if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-project.org")
 if(!require(arm)) install.packages("arm", repos = "http://cran.us.r-project.org")
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
-if(!require(googledrive)) install.packages("googledrive", repos = "http://cran.us.r-project.org")
 
 
 
@@ -32,7 +31,7 @@ library(rcompanion)
 library(ggridges)
 library(Rborist)
 library(dplyr)
-library(googledrive)
+
 
 options(scipen = 999)
 
@@ -667,8 +666,6 @@ RMSE <- function(true_ratings, predicted_ratings){
 #Calculate Mu (average) and Med (Median)
 mu <- mean(O2C_train$lt_105) 
 mu
-med <- median(O2C_train$lt_105)
-med
 
 #set up results dataframe
 rmse_results <- data.frame(method = character(),
@@ -681,50 +678,8 @@ library(arm)
 
 ### load pre-trained models if they do not exist in the right folder, yet 
 # create folder "models" in wd()
+dir.create("./predictions", showWarnings = FALSE)
 dir.create("./models", showWarnings = FALSE)
-
-#load tuned and trained models
-
-# lm
-url <- "https://drive.google.com/uc?export=download&id=1Ghnuax98AjMYIfgTX_gXJEvNVlymQJ92"
-drive_download(
-  url,
-  path="./models/test/lm_train.rda",
-  overwrite=FALSE
-)
-
-# bglm
-url <- "https://drive.google.com/uc?export=download&id=1QE5ytVE-CQ3S9oHD3QY8evUsKV0vbqFE"
-drive_download(
-  url,
-  path="./models/bglm_train.rda",
-  overwrite=FALSE
-)
-
-
-# CART
-url <- "https://drive.google.com/uc?export=download&id=1doJnae8e2RAZDEioxKidiDv5Ww67EQaR"
-drive_download(
-  url,
-  path="./models/CART_train.rda",
-  overwrite=FALSE
-)
-
-
-# rf_tune
-url <- "https://drive.google.com/uc?export=download&id=1fkMUjxVprOdf_KHh_zkrgrP-yGMGCtzL"
-drive_download(
-  url,
-  path="./models/train_rf.rda",
-  overwrite=FALSE
-)
-# rf
-url <- "https://drive.google.com/uc?export=download&id=1jY3k7TJFfQGp0DDqSoD2B8wD-FGYHJwT"
-drive_download(
-  url,
-  path="./models/fr_train.rda",
-  overwrite=FALSE
-)
 
 
 
@@ -773,12 +728,14 @@ lm_train <- train(lt_105 ~ .,
                   method = "lm", 
                   data = O2C_train)
 
-# save model to use it in the markup file
-saveRDS(lm_train, file="./models/lm_train.rda")
+
 
 # predict results in test data set
 model1.1_predict <- predict(lm_train, O2C_test)
 model1.1_rmse <- RMSE(O2C_test$lt_105, model1.1_predict)
+
+# save predictions to use it in the markup file
+saveRDS(model1.1_predict, file="./predictions/model1.1_predict.rda")
 
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
@@ -809,12 +766,12 @@ bglm_train <- train(lt_105 ~ .,
 )
 
 
-# save model to use it in the markup file
-saveRDS(bglm_train, file="./models/bglm_train.rda")
-
 #predict target values and calculate RMSE
 model1.2_predict <- predict(bglm_train, O2C_test, type = "raw")
 model1.2_rmse <- RMSE(O2C_test$lt_105, model1.2_predict)
+
+# save predictions to use it in the markup file
+saveRDS(model1.2_predict, file="./predictions/model1.2_predict.rda")
 
 # add results to dataframe to compare performance of models
 rmse_results <- bind_rows(rmse_results,
@@ -839,7 +796,7 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
 
 ##### MODELS 2 - NON-LINEAR MODELS #####
 
-#### MODEL 2.1 - kNN #### <== open,...too many ties or session abort
+#### MODEL 2.1 - kNN #### <== open,...only works with reduced tryout data set
 set.seed(1, sample.kind = "Rounding")
 
 control <- trainControl(method = "cv", number = 5, p = .9)
@@ -855,14 +812,15 @@ knn_cv_train$results %>%
   geom_point()
 
 
-
-
 # save model to use it in the markup file
 saveRDS(knn_cv_train, file="./models/knn_cv_train.rda")
 
 #predict target values and calculate RMSE
 model2.1_predict <- predict(knn_cv_train, O2C_test, type = "raw")
 model2.1_rmse <- RMSE(O2C_test$lt_105, model2.1_predict)
+
+# save predictions to use it in the markup file
+saveRDS(model2.1_predict, file="./predictions/model2.1_predict.rda")
 
 # add results to dataframe to compare performance of models
 rmse_results <- bind_rows(rmse_results,
@@ -885,20 +843,20 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
 
 
 
-#### MODEL 2.2 - SVM #### <== R fatal error
+#### MODEL 2.2 - SVM #### <== R fatal error, it works with very small data sets
 set.seed(1, sample.kind = "Rounding")
 
-control <- trainControl(method = "cv", number = 3, p = .5)
+control <- trainControl(method = "cv", number = 3, p = .9)
 svm_train <- train(lt_105 ~ channel_name+itemID+sum_m2+division+country, 
                    method = "svmLinear", 
                    trControl=control,
-                   data = O2C_train
+                   data = O2C_try
 )
 
 # save model to use it in the markup file
 saveRDS(knn_cv_train, file="./models/svm_train.rda")
 
-#predict target values and calculate RMSE
+# predict target values and calculate RMSE
 model2.2_predict <- predict(svm_train, O2C_test, type = "raw")
 model2.2_rmse <- RMSE(O2C_test$lt_105, model2.2_predict)
 
@@ -910,14 +868,14 @@ rmse_results <- bind_rows(rmse_results,
 rmse_results %>% knitr::kable()
 
 #plot predicted vs true data
-df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
-
-ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
-  geom_point(alpha=0.6)+
-  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
-  geom_abline(intercept=0,slope=1)+
-  xlim(-100, 1200)+
-  ylim(0, 1200)
+#df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+#
+#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+#  geom_point(alpha=0.6)+
+#  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
+#  geom_abline(intercept=0,slope=1)+
+#  xlim(-100, 1200)+
+#  ylim(0, 1200)
 
 
 
@@ -943,6 +901,8 @@ ggplot(tune_cart)
 plot(tune_cart$finalModel, margin = 0.1)
 text(tune_cart$finalModel, cex = 0.75)
 
+# save tune_model
+saveRDS(tune_cart, file="./models/tune_cart.rda")
 
 
 set.seed(1, sample.kind = "Rounding")
@@ -954,12 +914,14 @@ cart_train <- train(lt_105 ~ .,
 )
 
 
-# save model to use it in the markup file
-saveRDS(cart_train, file="./models/cart_train.rda")
+
 
 # predict results in test data set
 model3.1_predict <- predict(cart_train, O2C_test)
 model3.1_rmse <- RMSE(O2C_test$lt_105, model3.1_predict)
+
+# save predictions to use it in the markup file
+saveRDS(model3.1_predict, file="./predictions/model3.1_predict.rda")
 
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
@@ -999,6 +961,7 @@ ggplot(train_rf)
 saveRDS(train_rf, file="./models/train_rf.rda")
 
 tmp <- gc() #garbage collection to free memory
+
 # repeat above with best-tune parameters
 set.seed(1, sample.kind = "Rounding")
 rf_train <- train(lt_105~.,
@@ -1016,6 +979,9 @@ saveRDS(rf_train, file="./models/rf_train.rda")
 
 model3.2_predict <- predict(rf_train, O2C_test)
 model3.2_rmse <- RMSE(O2C_test$lt_105, model3.2_predict)
+
+# save predictions to use it in the markup file
+saveRDS(model3.2_predict, file="./predictions/model3.2_predict.rda")
 
 # add results to dataframe to compare performance of models
 rmse_results <- bind_rows(rmse_results,
@@ -1039,6 +1005,10 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
 final_predict <- predict(rf_train, O2C_val)
 final_rmse <- RMSE(O2C_val$lt_105, final_predict)
 
+# save predictions to use it in the markup file
+saveRDS(final_predict, file="./predictions/final_predict.rda")
+
+
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
                           data_frame(method="Validation",
@@ -1055,10 +1025,15 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
   xlim(-100, 1200)+
   ylim(0, 1200)
 
+
+
+
+
 ####### Results #######
 #visualization of RMSE´s
 rmse_results %>% ggplot(aes(x=method, y=RMSE)) +
-  geom_bar(stat="identity")
+  geom_bar(stat="identity")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
 # visualization use single pred vs actual graphs from above

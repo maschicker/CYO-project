@@ -25,7 +25,7 @@ if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-pr
 if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-project.org")
 if(!require(arm)) install.packages("arm", repos = "http://cran.us.r-project.org")
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
-if(!require(googledrive)) install.packages("googledrive", repos = "http://cran.us.r-project.org")
+
 
 
 
@@ -44,7 +44,6 @@ library(rcompanion)
 library(ggridges)
 library(Rborist)
 library(dplyr)
-library(googledrive)
 
 options(scipen = 999)
 
@@ -115,49 +114,109 @@ O2C <- df_O2C %>% left_join(df_project, by="PROJID")
 
 ### create folder "models" in wd() and download trained models
 dir.create("./models", showWarnings = FALSE)
+dir.create("./predictions", showWarnings = FALSE)
 
-#load tuned and trained models
+###load tuning models and predictions
 
-# lm
-url <- "https://drive.google.com/uc?export=download&id=1Ghnuax98AjMYIfgTX_gXJEvNVlymQJ92"
-drive_download(
+## lm
+#download predictions
+url <- "http://marcoschicker.de/data/model1.1_predict.rda"
+download.file(
   url,
-  path="./models/test/lm_train.rda",
+  destfile ="./predictions/model1.1_predict.rda",
   overwrite=FALSE
 )
+#read predictions
+model1.1_predict <- readRDS(file="./predictions/model1.1_predict.rda") 
 
-# bglm
-url <- "https://drive.google.com/uc?export=download&id=1QE5ytVE-CQ3S9oHD3QY8evUsKV0vbqFE"
-drive_download(
+
+## bglm
+#download predictions
+url <- "http://marcoschicker.de/data/model1.2_predict.rda"
+download.file(
   url,
-  path="./models/bglm_train.rda",
+  destfile ="./predictions/model1.2_predict.rda",
   overwrite=FALSE
 )
+#read predictions
+model1.2_predict <- readRDS(file="./predictions/model1.2_predict.rda") 
 
 
-# CART
-url <- "https://drive.google.com/uc?export=download&id=1doJnae8e2RAZDEioxKidiDv5Ww67EQaR"
-drive_download(
+## knn
+#download predictions
+url <- "http://marcoschicker.de/data/model2.1_predict.rda"
+download.file(
   url,
-  path="./models/CART_train.rda",
+  destfile ="./predictions/model2.1_predict.rda",
   overwrite=FALSE
 )
+#read predictions
+model2.1_predict <- readRDS(file="./predictions/model2.1_predict.rda") 
 
-
-# rf_tune
-url <- "https://drive.google.com/uc?export=download&id=1fkMUjxVprOdf_KHh_zkrgrP-yGMGCtzL"
-drive_download(
+#download model
+url <- "http://marcoschicker.de/data/knn_cv_train.rda"
+download.file(
   url,
-  path="./models/train_rf.rda",
+  destfile ="./models/knn_cv_train.rda",
   overwrite=FALSE
 )
-# rf
-url <- "https://drive.google.com/uc?export=download&id=1jY3k7TJFfQGp0DDqSoD2B8wD-FGYHJwT"
-drive_download(
+#read model
+knn_cv_train <- readRDS(file="./models/knn_cv_train.rda")
+
+
+## CART
+#download predictions
+url <- "http://marcoschicker.de/data/model3.1_predict.rda"
+download.file(
   url,
-  path="./models/fr_train.rda",
+  destfile ="./predictions/model3.1_predict.rda",
   overwrite=FALSE
 )
+#read predictions
+model3.1_predict <- readRDS(file="./predictions/model3.1_predict.rda") 
+
+#download model
+url <- "http://marcoschicker.de/data/tune_cart.rda"
+download.file(
+  url,
+  destfile ="./models/tune_cart.rda",
+  overwrite=FALSE
+)
+#read model
+tune_cart <- readRDS(file="./models/tune_cart.rda")
+
+
+## random forest
+#download predictions
+url <- "http://marcoschicker.de/data/model3.2_predict.rda"
+download.file(
+  url,
+  destfile ="./predictions/model3.2_predict.rda",
+  overwrite=FALSE
+)
+#read predictions
+model3.2_predict <- readRDS(file="./predictions/model3.2_predict.rda") 
+
+#download tuning model
+url <- "http://marcoschicker.de/data/train_rf.rda"
+download.file(
+  url,
+  destfile ="./models/train_rf.rda",
+  overwrite=FALSE
+)
+#read model
+train_rf <- readRDS(file="./models/train_rf.rda")
+
+## validation
+#download predictions
+url <- "http://marcoschicker.de/data/final_predict.rda"
+download.file(
+  url,
+  destfile ="./predictions/final_predict.rda",
+  overwrite=FALSE
+)
+#read predictions
+final_predict <- readRDS(file="./predictions/final_predict.rda") 
 
 ```
 
@@ -372,7 +431,7 @@ O2C_wide <- O2C_wide %>% mutate(order_complete = (!is.na(created_dt_A400)),
 ```
 
 
-#### investigate new wide data frame  
+#### Investigate new wide data frame  
 
 Let us have a look at the summary of the new wide data frame:
 ```{r wide_investigate}
@@ -523,6 +582,7 @@ O2C_wide <- droplevels(O2C_wide)
 ### Various visualizations and explorations  
 #### Amount of orders and distribution among time and business model  
 
+
 ```{r orders per year}
 # How many different orders total/per year / per country
 O2C_wide %>% ggplot(aes(x=start_year))+
@@ -531,8 +591,8 @@ O2C_wide %>% ggplot(aes(x=start_year))+
 ```
 We can see that direct sales is only active in country 2. The amount is higher compared to all other countries in total. We can also see that in 2021 there are no started and finished orders in country 3 and hardly any in country 4. Especially in country 3 we can observe a significant drop from 2018 to 2019 which is not plausible. A hypothesis is that the remaining orders have been deleted during cleaning because the practical handling of orders in the system is different compared to the other countries. The deep dive will not be done within this project but will be investigated separately. 
 
-#### Difference between LT_A000 and LT_A105  
-
+#### Difference between LT_A000 and LT_A105
+  
 One hypothesis mentioned above is that orders wait for some time in the status of A000 or A105. The following visualization shows the difference in days between the two lead times by year and Business model  
 
 ```{r leadtime_diff}
@@ -572,7 +632,7 @@ The distribution shows a much shorter lead time for partner business compared to
 
 
 #### Correlation  
-
+  
 Correlation and association is important to look at. Highly correlated predictors require a closer look to see if really both are needed. The following table and network map gives an impression how the various variables are related. Due to the fact that we have different classes we need to follow a differentiated approach, using different measures of association/correlation:  
 - nominal vs nominal with Chi-square  
 - numeric vs numeric with Pearson correlation  
@@ -657,7 +717,6 @@ We can see that there is a correlation between DS.PB, division and channel name 
 
 
 #### Duration on different status  
-
 The total lead time is the sum of the durations on every order step along the way. That is why we take a closer look at the order status. The following visualizations show the how long orders stay in which status, divided by different variables.
   
 
@@ -743,8 +802,6 @@ We can immediately see that country 4 is much different compared to the others. 
 
 
 #### Lead time in relation to predictors  
-
-
 The following charts show the leadtime in relation to various predictors. It shows the avg and the standard error in red and the median in green.
 
 ```{r LT_figures, out.width="50%"}
@@ -900,7 +957,6 @@ The interpretation is pretty straight forward.
 
 
 #### Items, countries and Lead times  
-
 The following visualization shows a tile chart with items sold in particular countries. The color indicates the lead time with red and grey being long lead times and light yellow indicating shorter lead times.
 
 ```{r item_country_lt }
@@ -964,7 +1020,7 @@ In order to find the best approach to predict lead times we will try out differe
 2. Non-linear models, e.g. kNN, SVM  
 3. Trees & Rules, e.g. CART, random forest  
 
-The process is to train models on data from a train data set and measure and compare the performance on a test set. Finally the best models will be validated on a validation data set. All models run on a reduced tryout data set. However, some models like kNN and SVM take lots of time to calculate on the full train data set, sometimes over 24h and had to be terminated. To achieve an acceptable balance between performance and run time we chose to change standard parameters in those cases and only used 50% of training data and 3-fold cross validation instead of 25 bootstraps.
+The process is to train models on data from a train data set and measure and compare the performance on a test set. Finally the best models will be validated on a validation data set. All models run on a reduced tryout data set. However, some models like kNN and SVM take lots of time to calculate on the full train data set, sometimes over 24h and had to be terminated. To achieve an acceptable balance between performance and run time we chose to change standard parameters in those cases and only used a reduced training set and 3-fold cross validation instead of 25 bootstraps.
 
 
 ### Initialization
@@ -1004,7 +1060,7 @@ O2C_train <- O2C_wide_tt[-test_index,]
 
 ### create a small data subset to tryout code fast
 set.seed(1, sample.kind="Rounding")
-try_index <- createDataPartition(y = O2C_train$lt_105, times = 1, p = 0.01, list = FALSE)
+try_index <- createDataPartition(y = O2C_train$lt_105, times = 1, p = 0.05, list = FALSE)
 O2C_try <- O2C_train [try_index,]
 
 # load arm-library, because it caused conflicts with dplyr in select
@@ -1046,8 +1102,6 @@ avg_rmse <- RMSE(O2C_test$lt_105, mu)
 rmse_results <- bind_rows(rmse_results,
                           data_frame(method="0.1 - Average",
                                      RMSE = avg_rmse ))
-rmse_results %>% knitr::kable()
-
 
 #### MODEL 0.2 - separate AVERAGES FOR DS/PB####
 #calculate separate avg per business model
@@ -1076,30 +1130,18 @@ Bayes GLM takes a long time to run so we decided to reduce the time needed by on
 ##### MODELS 1 - LINEAR MODELS
 #### MODEL 1.1 - LM ####
 
-#read model
-readRDS(file="./models/lm_train.rda") 
-
-# predict results in test data set
-model1.1_predict <- predict(lm_train, O2C_test)
+# calculate RMSE
 model1.1_rmse <- RMSE(O2C_test$lt_105, model1.1_predict)
 
 # add results to dataframe to compare performance of models
 rmse_results <- bind_rows(rmse_results,
                           data_frame(method="1.1 - LM",
                                      RMSE = model1.1_rmse ))
-rmse_results %>% knitr::kable()
-
-
-
 
 
 #### MODEL 1.2 - Bayes GLM ####
 
-# save model to use it in the markup file
-saveRDS(bglm_train, file="./models/bglm_train.rda")
-
-#predict target values and calculate RMSE
-model1.2_predict <- predict(bglm_train, O2C_test, type = "raw")
+# calculate RMSE
 model1.2_rmse <- RMSE(O2C_test$lt_105, model1.2_predict)
 
 # add results to dataframe to compare performance of models
@@ -1114,14 +1156,37 @@ rmse_results %>% knitr::kable()
 ### Non-linear models
 As the next group of models to use we will work with non-linear models, namely k-nearest neighbors (knn) and support vector machines (svm). Both turn out to take a long time to run and cause problems using the full amount of training data. 
 
-Using kNN requires to choose the right k, meaning to define the size of the groups of observations that will be combined as one prediction. First tries resulted in aborted simulations due to too many neighbors (>1000).  
-Running SVM on the full training data set resulted in a crash of R. In order to have a basic model available we reduced the p-value for both models to 0.05, so only 5% of the training data set. 
+Using kNN requires to choose the right k, meaning to define the size of the groups of observations that will be combined as one prediction. First tries resulted in aborted simulations due to too many neighbors (>1000). The reason is most likely that we have mainly categorical predictors and more than 200,000 observations, that can lead to the same distance for many cases. We use a first model to find out which k provides the best RMSE. You can see the comparison in the graph below.
 
-The results are much worse compared to the other approaches.
+Running SVM on the full training data set resulted in a crash of R. 
+
+In order to have a basic model available we reduced the amount of data to only 5% of the training data set. 
+
+The results are worse than taking the split average (model 0.2). You can see the result for kNN below, SVM didn´t run successfully and will be left out for this project. 
 
 
 ```{r non_linear models}
+####kNN###
 
+
+# plot tuning parameters
+knn_cv_train$results %>% 
+  ggplot(aes(x = k, y = RMSE)) +
+  geom_line() +
+  geom_point()
+
+
+# calculate RMSE
+model2.1_rmse <- RMSE(O2C_test$lt_105, model2.1_predict)
+
+
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="2.1 - knn",
+                                     RMSE = model2.1_rmse))
+
+rmse_results %>% knitr::kable()
 
 
 ```
@@ -1132,19 +1197,21 @@ The results are much worse compared to the other approaches.
 
 Last but not least We will try regression trees and random forests as prediction methods. 
 Using the rpart-library we will first run a model to tune for the right parameter of cp and run create a tree based on the best performing model. The results can be seen below.
+Firstly see the tunegrid to identify the best complexity factor cp. As a second visualization you can see the decision tree that leads to the best RMSE. However, the RMSE achieved with the decision tree is above 53 and therefore significantly worse compared to linear models.
 
 
 ```{r trees and rules}
 
 ##### MODELS 3 - TREES & RULES #####
-
 #### MODEL 3.1 - CART ####
+# plot the tune-grid  
+ggplot(tune_cart)
 
-# load model to use it in the markup file
-loadRDS(cart_train, file="./models/cart_train.rda")
+# plot decision tree
+plot(tune_cart$finalModel, margin = 0.1)
+text(tune_cart$finalModel, cex = 0.75)
 
-# predict results in test data set
-model3.1_predict <- predict(cart_train, O2C_test)
+# calculate RMSE
 model3.1_rmse <- RMSE(O2C_test$lt_105, model3.1_predict)
 
 # add results to dataframe to compare performance of models#
@@ -1156,12 +1223,10 @@ rmse_results %>% knitr::kable()
 
 ```
 
-To find the best random forest we also use a tuning run, using the rborist package and finding the lowest RMSE for cp and amount of randomly selected predictors. Below you can see the performance comparison for different values as well as the results for the best performing model. The final RMSE is added to the comparison table. 
+To find the best random forest we also use a tuning run, using the rborist package and finding the lowest RMSE for amount of minimal nodes and amount of randomly selected predictors. Below you can see the performance comparison for different values as well as the results for the best performing model. The final RMSE is added to the comparison table.   
 ```{r random forest}
 #### MODEL 3.2 - RANDOM FOREST #### 
 
-#load model data of first run with CV and different parameters
-readRDS(file="./models/train_rf.rda")
 
 #plot performance of different parameters
 ggplot(train_rf)
@@ -1170,12 +1235,7 @@ ggplot(train_rf)
 train_rf$bestTune
 
 
-#load model with best tuning parameters from above
-readRDS(file="./models/rf_train.rda")
-
-
-# predict results in test data set
-model3.2_predict <- predict(rf_train, O2C_test)
+# calculate RMSE
 model3.2_rmse <- RMSE(O2C_test$lt_105, model3.2_predict)
 
 # add results to dataframe to compare performance of models
@@ -1196,9 +1256,7 @@ The results show that the RMSE is quite high and doesn´t allow for a precise pr
 We use the best performing model (random forest) on the validation set and add the results to the overview:
 ```{r validation}
 ####### VALIDATION #######
-#best performing model used to do predictions in O2C_val
-
-final_predict <- predict(rf_train, O2C_val)
+#calculate RMSE
 final_rmse <- RMSE(O2C_val$lt_105, final_predict)
 
 # add results to dataframe to compare performance of models#
@@ -1210,7 +1268,8 @@ rmse_results <- bind_rows(rmse_results,
 #visualization of RMSE´s
 
 rmse_results %>% ggplot(aes(x=method, y=RMSE)) +
-  geom_bar(stat="identity")
+  geom_bar(stat="identity")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ```
 
@@ -1250,14 +1309,14 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
   ylim(0, 1200)
 
 #plot predicted vs true data 2.1
-#df <- data.frame(pred = model2.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+df <- data.frame(pred = model2.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
 
-#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
-#  geom_point(alpha=0.6)+
-#  labs(title="predicted vs. true (kNN)", x="predicted",y="actual")+
-#  geom_abline(intercept=0,slope=1)+
-#  xlim(-100, 1200)+
-#  ylim(0, 1200)
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (kNN)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 #plot predicted vs true data 2.2
 #df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
@@ -1316,9 +1375,9 @@ Limitations of this project are the consistency of data, e.g. the different hand
 Improving the algorithm would be possible by categorizing lead time into bins. That would enable us to use more methods like QDA, LDA, GLM, and alike.
 
 Talking about practical next steps within the company all suggested measures can be categorized in two buckets:  
+  
 1. Improvement based on the outcome  
 Based on the outcomes and the conclusion the project results will be integrated in focused task force improvements in the Sales department.  
-
 2. System adaptation to integrate data analysis based on this report into daily business and leadership processes  
 System adaptations could involve tracking particular key performance indicator (KPI) within shopfloor management. Further a prediction system could be improved by excluding outliers from data and therefore reduce variation of data.
 As the company is currently implementing process updates along with a new Core ERP the focus on aligned, cross-departmental processes is given and the results of this project can be used to specify process and system requirements.
