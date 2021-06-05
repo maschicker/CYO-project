@@ -13,10 +13,46 @@ output:
 ``` {r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo=FALSE, warning=FALSE, Message=FALSE, fig.width=6, fig.height=4)
 
+#######INSTALL PACKAGES#######
+
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(gam)) install.packages("gam", repos = "http://cran.us.r-project.org")
+if(!require(hablar)) install.packages("hablar", repos = "http://cran.us.r-project.org")
+if(!require(rcompanion)) install.packages("rcompanion", repos = "http://cran.us.r-project.org")
+if(!require(corrr)) install.packages("corrr", repos = "http://cran.us.r-project.org")
+if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-project.org")
+if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-project.org")
+if(!require(arm)) install.packages("arm", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(googledrive)) install.packages("googledrive", repos = "http://cran.us.r-project.org")
+
+
+
+library(tidyverse)
+library(caret)
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(lubridate)
+library(rpart)
+library(matrixStats)
+library(gam)
+library(splines)
+library(hablar)
+library(rcompanion)
+library(ggridges)
+library(Rborist)
+library(dplyr)
+library(googledrive)
+
+options(scipen = 999)
 
 
 ```
 
+***
+\newpage
 
 # Executive summary  
 
@@ -25,7 +61,7 @@ In order to form resilient, effective and efficient supply chains lead times are
 
 The goal of this project is to predict Order-to-Casch (O2C) lead times at the time of ordering by the customer, depending on product, the sales channel, sales organization, the production site and seasonal trends, along with what data we can get out of the ERP. In order to do this we will analyze system logs of all sales orders from the last couple years.
 
-
+\newpage
 # Background information  
 
 ## Lead time  
@@ -44,7 +80,7 @@ The company that we will use to showcase ML in lead time prediction is a europea
 
 
 
-
+\newpage
 # Methods & Analysis
 The process to train the models consists of the following basic steps:  
 
@@ -55,8 +91,81 @@ The process to train the models consists of the following basic steps:
 - Validation of best model
 
 ## Data import  
+```{r data import}
+##### Load data set #####
+### load order-to-cash-data
+### URL: http://marcoschicker.de/data/O2C.csv
+dl <- tempfile()
+download.file("http://marcoschicker.de/data/O2C.csv", dl)
+df_O2C <- read.csv(dl)
+
+
+### load project data
+### URL: http://marcoschicker.de/data/project.csv
+dl2 <- tempfile()
+download.file("http://marcoschicker.de/data/project.csv", dl2)
+df_project <- unique(read.csv(dl2) %>% select(PROJID, channel_name, division, divisiongroup))
+
+# eliminate duplicate PROJID and only keep the first
+df_project <- df_project[!duplicated(df_project[,1]),]
+
+
+###join project table to include direct sales organizations as possible predictors
+O2C <- df_O2C %>% left_join(df_project, by="PROJID")
+
+### create folder "models" in wd() and download trained models
+dir.create("./models", showWarnings = FALSE)
+
+#load tuned and trained models
+
+# lm
+url <- "https://drive.google.com/uc?export=download&id=1Ghnuax98AjMYIfgTX_gXJEvNVlymQJ92"
+drive_download(
+  url,
+  path="./models/test/lm_train.rda",
+  overwrite=FALSE
+)
+
+# bglm
+url <- "https://drive.google.com/uc?export=download&id=1QE5ytVE-CQ3S9oHD3QY8evUsKV0vbqFE"
+drive_download(
+  url,
+  path="./models/bglm_train.rda",
+  overwrite=FALSE
+)
+
+
+# CART
+url <- "https://drive.google.com/uc?export=download&id=1doJnae8e2RAZDEioxKidiDv5Ww67EQaR"
+drive_download(
+  url,
+  path="./models/CART_train.rda",
+  overwrite=FALSE
+)
+
+
+# rf_tune
+url <- "https://drive.google.com/uc?export=download&id=1fkMUjxVprOdf_KHh_zkrgrP-yGMGCtzL"
+drive_download(
+  url,
+  path="./models/train_rf.rda",
+  overwrite=FALSE
+)
+# rf
+url <- "https://drive.google.com/uc?export=download&id=1jY3k7TJFfQGp0DDqSoD2B8wD-FGYHJwT"
+drive_download(
+  url,
+  path="./models/fr_train.rda",
+  overwrite=FALSE
+)
+
+```
+
+
 The data provided by the company has been widely anonymized and shared on a web site as a CSV file. It consists of two different files:  
-1. "O2C.csv" - a file showing _one observation per order status change_ and including information like timestamp, corresponding project ID, sales data, volumes etc...
+
+1. "O2C.csv" - a file showing _one observation per order status change_ and including information like timestamp, corresponding project ID, sales data, volumes etc...  
+
 2. "project.csv" - a file showing _one observation per projectID_ linking projects to direct sales organizations and making it possible to use these as predictors. the project-file is leftjoined to the O2c file to combine all data in one table.
 
 The data is only roughly cleaned and needs to be altered in order to be used.
@@ -67,27 +176,29 @@ The data is only roughly cleaned and needs to be altered in order to be used.
 In order to work with the data set it is analyzed and altered.
 
 ### Overall analysis
-To get a first overview about the data the following table is created:
+To get a first overview about the data the following summary is created:
 ```{r first analysis}
 ### data exploration
 summary(O2C)
 ```
 We can see that the O2C data table consists of the following columns:  
-- country - the country in which the order was sold
-- DS.PB - direct sales (=our own shops) or partner business (=retailer)
-- statusID - the different stati that any order (=salesID) can go through
-- status_name - the corresponding short description of the statusID
-- created_dt - timestamp automatically generated when the status change has been made
-- corr_project - binary to mark correction projects
-- PROJID - project ID. Any project can have 1 or more SalesIDs associated to it. An order cannot be finalized if there are other unfinished orders within a project.
-- salesID - an order line identifier. It is created by appending an order number to the projectID
-- itemID - The product sold within the order line. Can be empty in some cases if there are multiple items included. This is true only for some sales channels
-- sum_qty - how many items are sold
-- sum_m2 - how many m² have been sold within this order
-- days on status - time in days that an order stays in a certain status.
-- channel_name - detailed information which organization or planner is selling the order
-- divisiongroup - high level differentiation if it is a service, installation or retail project
-- division - mid level differentiation between 17 divisions. 
+
+- country - the country in which the order was sold  
+- DS.PB - direct sales (=our own shops) or partner business (=retailer)  
+- statusID - the different stati that any order (=salesID) can go through  
+- status_name - the corresponding short description of the statusID  
+- created_dt - timestamp automatically generated when the status change has been made  
+- corr_project - binary to mark correction projects  
+- PROJID - project ID. Any project can have 1 or more SalesIDs associated to it. An order cannot be finalized if there are other unfinished orders within a project.  
+- salesID - an order line identifier. It is created by appending an order number to the projectID  
+- itemID - The product sold within the order line. Can be empty in some cases if there are multiple items included. This is true only for some sales channels  
+- sum_qty - how many items are sold  
+- sum_m2 - how many m² have been sold within this order  
+- days on status - time in days that an order stays in a certain status.  
+- channel_name - detailed information which organization or planner is selling the order  
+- divisiongroup - high level differentiation if it is a service, installation or retail project  
+- division - mid level differentiation between 17 divisions.   
+
 
 The dimensions and the first rows of the data file are as follows:  
 ```{r}
@@ -157,7 +268,7 @@ Lastly, the data also include _intercompany orders_ which need to be excluded fr
 ```{r cleaning}
 ### erase Service orders (services are no hardware and follow a separate workflow ==> excluded from the project)
 #amount of rows associated with service
-table(O2C$divisiongroup)
+#table(O2C$divisiongroup)
 O2C <- O2C %>% filter(divisiongroup != "SERV")
 serv_salesID <- orig_salesID - n_distinct(O2C$salesID)
 rem_orders <- n_distinct(O2C$salesID)
@@ -167,7 +278,7 @@ O2C <- O2C%>% select(-"divisiongroup")
 
 ### erase "P90X"-products (These are mostly administrative hours)
 #amount of rows with P90X-items
-nrow(O2C[(str_detect(O2C$itemID, "P90")),])
+#nrow(O2C[(str_detect(O2C$itemID, "P90")),])
 #erase rows
 O2C <- O2C[!(str_detect(O2C$itemID, "P90")),]
 
@@ -176,7 +287,7 @@ rem_orders <- n_distinct(O2C$salesID)
 
 ### erase correction projects (correction projects follow a separate workflow and will be excluded in this project)
 # count how many rows concerning correction projects are in the database 
-table(O2C$corr_project)
+#table(O2C$corr_project)
 
 O2C <- O2C %>% filter(corr_project == 0)
 O2C <- O2C %>% select(-"corr_project")
@@ -186,18 +297,19 @@ rem_orders <- n_distinct(O2C$salesID)
 
 
 ### erase intercompany orders (IC-orders always have a data twin and would bias the data)
-table(O2C$division)
+#table(O2C$division)
 O2C <- O2C %>% filter(division != "IC")
 # amount of order line cleaned
 ic_salesID <- rem_orders - n_distinct(O2C$salesID)
 rem_orders <- n_distinct(O2C$salesID)
 ```
 
-
-
-
 ### Find duplicate entries  
-Investigating the data we can find `r problems <- which(duplicated(O2C)) length(problems)` duplicates.
+```{r}
+problems <- which(duplicated(O2C)) 
+```
+
+Investigating the data we can find `r length(problems)` duplicates.
 
 
 ### Convert to wide data
@@ -230,8 +342,11 @@ O2C_wide <- O2C %>% pivot_wider(
 #### Add new columns  
 
 To prepare for modeling we will create new columns to differentiate between different kind of orders  
-- total_lt - total lead time from beginning to end, defined as the difference between the timestamp A400 and A105 plus the duration in status A400. Remember that an invoice sent is status A410, for which we don´t have a timestamp. 
+  
+- total_lt - total lead time from beginning to end, defined as the difference between the timestamp A400 and A105 plus the duration in status A400. Remember that an invoice sent is status A410, for which we don´t have a timestamp.  
+
 - order_complete - a binary variable which is 1 if there is a A400 timestamp and 0 if not. 0 means that the order has dropped out of the system at some point. 
+- start_year/month - two columns derived from the timestamp of each order passing status A000  
 
 ```{r widealter}
 ### Create column for complete orders
@@ -240,12 +355,12 @@ To prepare for modeling we will create new columns to differentiate between diff
 ### Drop duration columns, as they are only needed for lead time calculation
 
 O2C_wide <- O2C_wide %>% mutate(order_complete = (!is.na(created_dt_A400)),
-                                lt_105 = as.numeric(difftime(created_dt_A400, created_dt_A105, units = "days"))+days_on_status_A400,
-                                lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400,
+                                lt_105 = round(as.numeric(difftime(created_dt_A400, created_dt_A105, units = "days"))+days_on_status_A400, 0),
+                                lt_000 = round(as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400, 0),
                                 start_year = as.factor(year(created_dt_A000)),
                                 start_month = as.factor(month(created_dt_A000)),
                                 sum_m2 = round(sum_m2,0)
-                                ) %>%
+) %>%
                           select(-days_on_status_A000,
                                  -days_on_status_A100,
                                  -days_on_status_A105,
@@ -257,10 +372,10 @@ O2C_wide <- O2C_wide %>% mutate(order_complete = (!is.na(created_dt_A400)),
 ```
 
 
-#### investigate new wide data frame
+#### investigate new wide data frame  
 
 Let us have a look at the summary of the new wide data frame:
-```{r echo=TRUE}
+```{r wide_investigate}
 ### investigate new data frame
 summary(O2C_wide)
 
@@ -268,9 +383,9 @@ summary(O2C_wide)
 wide_salesID <- nrow(O2C_wide)
 ```
 
-We can see that there are a few NA´s created but overall the data so we need to dig deeper and define the best way to handle these orders.
+We can see that there are a few NA´s created but overall the data looks good. We need to dig deeper and define the best way to handle these orders.
 
-As a first check we need to find out how many orders are complete and exclude all incomplete orders. As check criteria we assume that any complete order has a valid timestamp for statusID=A400 (= invoice proposal created). We can see that only a proportion of `r mean(O2C_wide$order_complete)` of all orders are complete. A deep dive reveals the amount of incomplete orders per year. A sales order is assigned to a year according to its A000-timestamp.
+As a first check we need to find out how many orders are complete and exclude all incomplete orders. As check criteria we assume that any complete order has a valid timestamp for statusID=A400 (= invoice proposal created). We can see that only a proportion of `r mean(O2C_wide$order_complete)` of all orders are complete. Orders are always part of projects and it is possible that a project is being invoiced and closed with one or more orders still open. These orders need to be excluded from the analysis. A deep dive reveals the amount of incomplete orders per year. A sales order is assigned to a year according to its A000-timestamp.
 ```{r incomplete orders per year}
 #unfinished orders per year (startdate)
 O2C_wide %>% mutate(year = year(created_dt_A000)) %>%
@@ -349,22 +464,34 @@ O2C_wide %>% group_by(division, start_year)%>%
 
 # for all FH-orders ==> copy A000 timestamp to A105
 O2C_wide <- O2C_wide %>% mutate(created_dt_A105 = ifelse(division=="FH" & is.na(created_dt_A105), created_dt_A000, created_dt_A105))
+                                 
 
 # for all other divisions ==> erase rows w/NA in column "created_dt_A105"
 O2C_wide <- O2C_wide %>% filter(!is.na(created_dt_A105))
 
 # recalculate lt_105 and lt_000
-O2C_wide <- O2C_wide %>% mutate(lt_105 = as.numeric(difftime(created_dt_A400, as_datetime(created_dt_A105), units = "days"))+days_on_status_A400,
-                                lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400) %>%
+O2C_wide <- O2C_wide %>% mutate(created_dt_A105 = as.POSIXct(created_dt_A105, tz="UTC",origin="1970-01-01"),
+                                     lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400,
+                                     lt_105 = as.numeric(difftime(created_dt_A400, created_dt_A105, units="days"))) %>%
   select(-days_on_status_A400)
 
 #amount of erased rows with NA in A105-timestamp
 noA105_salesID <- rem_orders - nrow(O2C_wide)
+rem_orders <- nrow(O2C_wide)
 ```
 
 We can see that the division _FH_ (that is partner business in 2 countries) has a proportion of 100%, which means none of their orders passes through status A105. In order to not exclude them completely from comparison we will copy the timestamp of A000 to A105. Later, when we look at the difference between the two different lead times we will keep this in mind for interpretation.
 The second effect we can see is a proportion between 15% and 35% of orders that are not passing through status A105. The Hypothesis is that some orders are entered into the system as a dummy order during the sales process. If the customer decides to place an actual order a new system order is created. We will consider all cases other then for division _FH_ to be this way and will exclude the rows from the data set.  
 
+### Remove rows with a lead time <= 0 days  
+
+For further cleaning of the data we will erase rows with a lead time of <= 0 days.
+```{r lt<=0}
+### Lead time <=0
+O2C_wide <- O2C_wide %>% filter(lt_105 > 0 )
+#amount of erased rows with lt<=0
+lt_0_salesID <- rem_orders - nrow(O2C_wide)
+```
 
 
 ### Remove predictors with near zero variation
@@ -374,6 +501,7 @@ The following table shows all remaining variables checked for zero or near zero 
 nzv <- nearZeroVar(O2C_wide, saveMetrics = TRUE)
 nzv[,3:4]
 ```
+We can see that no variables have a zero or near zero variation.
 
 
 ### Align two tables O2C and O2C_wide  
@@ -393,7 +521,8 @@ O2C_wide <- droplevels(O2C_wide)
 
 
 ### Various visualizations and explorations  
-#### Amount of orders and distribution among time and business model
+#### Amount of orders and distribution among time and business model  
+
 ```{r orders per year}
 # How many different orders total/per year / per country
 O2C_wide %>% ggplot(aes(x=start_year))+
@@ -402,8 +531,10 @@ O2C_wide %>% ggplot(aes(x=start_year))+
 ```
 We can see that direct sales is only active in country 2. The amount is higher compared to all other countries in total. We can also see that in 2021 there are no started and finished orders in country 3 and hardly any in country 4. Especially in country 3 we can observe a significant drop from 2018 to 2019 which is not plausible. A hypothesis is that the remaining orders have been deleted during cleaning because the practical handling of orders in the system is different compared to the other countries. The deep dive will not be done within this project but will be investigated separately. 
 
-#### Difference between LT_A000 and LT_A105
-One hypothesis mentioned above is that orders wait for some time in the status of A000 or A105. The following visualization shows the difference in days between the two lead times by year and Business model
+#### Difference between LT_A000 and LT_A105  
+
+One hypothesis mentioned above is that orders wait for some time in the status of A000 or A105. The following visualization shows the difference in days between the two lead times by year and Business model  
+
 ```{r leadtime_diff}
 # difference between LT105 and LT000
 
@@ -415,16 +546,38 @@ O2C_wide %>% mutate(lt_diff = lt_000-lt_105) %>%
   ylim(0,2000)+
   labs(title = "Lead time comparison", x="Lead time difference [days]")
 ```
+
 As we can see most of the orders in partner business have a difference between 1 and 7 days with a clear peak around 1-3 days. Especially in 2021 the difference seems to be getting smaller. 
 In direct sales this is not so clear. With a clear peak at 1 day the rest of the distribution is much more evenly distributed up to 20 days. The reason could be that some clarifications and quotations for non-standard items in direct sales need to be done _after_ opening the order, in partner business these tasks happen _before_ opening the order. 
 Nevertheless, we observe a long right tail in all distributions, showing that there are quite a few orders that have been on status A000 or A100 for many days. We will not consider this in the modeling approach as we will start from status A105. However, this could be a topic in terms of customer response time as one of the possible impacts.
 
+#### Lead time 105 Histogram and density
+```{r 105_histogram}
+### Lead time histogram and density
+O2C_wide %>% 
+  ggplot(aes(x=lt_105, y=DS.PB, fill=DS.PB,))+
+  geom_density_ridges(alpha=0.3, stat="binline", binwidth=2)+
+  stat_density_ridges(alpha=0.6,
+                      quantile_lines = TRUE,
+                      quantiles = c(0.05, 0.5, 0.95),
+                      scale = 1)+
+  theme_ridges()+
+  theme(legend.position="none",
+        panel.spacing = unit(0.1, "lines"))+
+  xlim(0,500)+
+  labs(title = "Lead Time by Business model w/ 5%/50%/95%-quantile", x="", y="")
+ 
+```
+The distribution shows a much shorter lead time for partner business compared to direct sales. The 50%-percentile (median) in partner business is about the same length as the 5%-percentile in direct sales - around 20 days
+
 
 #### Correlation  
-Correlation and association is important to look at. Highly correlated predictors require a closer look to see if really both are needed. The following table and network map gives an impression how the various variables are related. DUe to the fact that we have different classes we need to follow a differentiated approach, using different measures of association/correlation:  
-- nominal vs nominal with Chi-square
-- numeric vs numeric with Pearson correlation
-- nominal vs numeric with ANOVA
+
+Correlation and association is important to look at. Highly correlated predictors require a closer look to see if really both are needed. The following table and network map gives an impression how the various variables are related. Due to the fact that we have different classes we need to follow a differentiated approach, using different measures of association/correlation:  
+- nominal vs nominal with Chi-square  
+- numeric vs numeric with Pearson correlation  
+- nominal vs numeric with ANOVA  
+
 
 ```{r correlation}
 ### mixed correlation as provided on stackoverflow: ###
@@ -488,7 +641,7 @@ d <- data.frame(country = O2C_wide$country,
                 channel_name = O2C_wide$channel_name
 )
 d_corr <- mixed_assoc(d) # <== use for numerical analysis
-d_corr
+#d_corr
 
 # create a networkplot
 d_corr %>%
@@ -503,14 +656,14 @@ d_corr %>%
 We can see that there is a correlation between DS.PB, division and channel name and country. This is expected as every division can be assigned to either direct sales (DS) or partner business (PB). The channel names are a more detailed level of divisions. We will keep DS.PB because it provides a broader overview. In termes of association with our target variable LT_105 (lead time) we can see that channel name has the highest association of all predictors with .655 before division with 0.635. After that DS.PB (.562), m² (.378) and itemID (.320) follow. Country (.117), year (.100), and month (.048) don´t seem to be as associated to the lead time. This result seems plausible in general, except for country which we have learned above doesn´t include orders from country 3, which is the second strongest country. Secondly, the impact of year should have been higher if the company would have improved over the last 5 years. 
 
 
-#### Duration on different status
+#### Duration on different status  
 
 The total lead time is the sum of the durations on every order step along the way. That is why we take a closer look at the order status. The following visualizations show the how long orders stay in which status, divided by different variables.
   
 
 The first chart shows the order flow on the y axis bottom to top. The x axis shows the amount of days an order stays on that status. The ridgeline shows the distribution, including the 5% and 95% quantile. This chart is done for direct sales and partner business separately.
 
-```{r status duration 1}
+```{r status_duration_1}
 ### days on status per status - distribution deep dive for DS.PB und over time
 
 # ridgeline for quick overview by DS.PB
@@ -532,12 +685,12 @@ O2C %>% mutate(year= year(created_dt),
 ```
 
 There is a lot of information we can derive from this chart. Firstly we see that the distribution in direct sales is much smoother compared to partner business. The reason could be some kind of scheduling. We will see later if this reflects also in the total lead time. A300 (production) seems to be close to gaussian with an avg of around 7-8 days. Remarkable is the distribution of A330 and A340 in direct sales which shows no clear peak (A330) and a long, even right tail. The 95% percentile is the highest with around 45 days. 
-Also A105 has a long right tail in direct sales which indicates long term plant planning or order buffering and reschaduling.
+Also A105 has a long right tail in direct sales which indicates long term plant planning or order buffering and rescheduling.
 
   
 The second chart is a classic boxplot chart that shows the order flow from left to right on the x axis and the days_on_status on the y axis (watch out: the Y-axis is logarithmic). The data is seperated for direct sales and partner sales and additionally by start-year of the order. The boxplot shows the mean-value as a thick line, the box boundaries show the 25/75-percentiles, the lines show the standard error and the dots visualize outliers, i.e. points with high deviation from standard. The width of the box shows the amount of orders provided to calculate the figures, i.e. a very narrow box means there are only few orders.
 
-```{r status duration 2}
+```{r status_duration_2}
 # Boxplot for different Business models per year
 O2C %>% mutate(year= year(created_dt),
                month=month(created_dt),
@@ -566,7 +719,7 @@ All in all it seems that along the supply chain every step is involved in _juggl
 
 The third visualization is a ridgeline chart, this time divided by country:
 
-```{r status duration 3}
+```{r status_duration_3}
 # ridgeline for quick overview by country
 O2C %>% mutate(year= year(created_dt),
                month=month(created_dt),
@@ -590,6 +743,8 @@ We can immediately see that country 4 is much different compared to the others. 
 
 
 #### Lead time in relation to predictors  
+
+
 The following charts show the leadtime in relation to various predictors. It shows the avg and the standard error in red and the median in green.
 
 ```{r LT_figures, out.width="50%"}
@@ -744,7 +899,7 @@ The interpretation is pretty straight forward.
 - Ordered m² show a correlation as the lead time increases for larger m² ordered
 
 
-#### Items, countries and Lead times
+#### Items, countries and Lead times  
 
 The following visualization shows a tile chart with items sold in particular countries. The color indicates the lead time with red and grey being long lead times and light yellow indicating shorter lead times.
 
@@ -775,17 +930,18 @@ We can observe that the longest lead times are in country 2. We clearly see that
 ## Insights gained  
 
 A first insight is that the system data contains a very big amount of orders that obviously didn´t follow the standard process. We started out with `r orig_salesID` unique orders and deleted the following:  
-1. `r serv_salesID` Service orders
-2. `r P90_salesID` P90x orders
-3. `r corrproj_salesID` correction projects
-4. `r ic_salesID` Inter company orders
-5. `r incompl_salesID` unfinished orders (no A400 timestamp)
-6. `r noA000_salesID` orders started before the start data start cut off (no A000 timestamp)
-7. `r noA0105_salesID` dummy orders (no A105 timestamp [except country 1])
+1. `r serv_salesID` Service orders  
+2. `r P90_salesID` P90x orders  
+3. `r corrproj_salesID` correction projects  
+4. `r ic_salesID` Inter company orders  
+5. `r incompl_salesID` unfinished orders (no A400 timestamp)  
+6. `r noA000_salesID` orders started before the start data start cut off (no A000 timestamp)  
+7. `r noA105_salesID` dummy orders (no A105 timestamp [except country 1])
+8. `r lt_0_salesID` orders with a lead time of <=0 days
 
 That leaves us with a proportion of `r nrow(O2C_wide)/orig_salesID` kept order lines. All others have been excluded from the data set.  
 
-An obviously different handling of orders in France causes most of the orders in France to be excluded.   
+An obviously different handling of orders in France causes most of the orders in France to be excluded. Possibly they don´t use the A400 status and go directly to A410.   
 
 The detailed deep dive confirms mostly the assumptions from the correlation analysis, so the following predictors are the most promising ones:
   
@@ -801,32 +957,37 @@ The detailed deep dive confirms mostly the assumptions from the correlation anal
 
 
 ## Modeling approach
-In order to find the best approach to predict lead times we will try out different models, some of low complexity and some more sophisticated   
-0. primitive models, e.g. averages
-1. Linear models, e.g. GLM, LDA,..
-2. Non-linear models, e.g. kNN, SVM
-3. Trees & Rules, e.g. CART, J48, PART, random forest
-4. Ensembles
+In order to find the best approach to predict lead times we will try out different models, some of low complexity and some more sophisticated. Since we are predicting a continuous value (lead time) some of the models do not apply as they are build to predict categorical data.   
 
-The process is to train models on data from a train data set and measure and compare the performance on a test set. Finally the best models will be validated on a validation data set.
+0. Primitive models, e.g. averages  
+1. Linear models, e.g. lm, Bayes_glm  
+2. Non-linear models, e.g. kNN, SVM  
+3. Trees & Rules, e.g. CART, random forest  
+
+The process is to train models on data from a train data set and measure and compare the performance on a test set. Finally the best models will be validated on a validation data set. All models run on a reduced tryout data set. However, some models like kNN and SVM take lots of time to calculate on the full train data set, sometimes over 24h and had to be terminated. To achieve an acceptable balance between performance and run time we chose to change standard parameters in those cases and only used 50% of training data and 3-fold cross validation instead of 25 bootstraps.
 
 
 ### Initialization
 The data set is first finalized for prediction methods by deleting and changing columns that are not used as predictors or changing them to factors. This data set is called _O2C_wide_final_.
 O2C_wide final is split into a validation set (10% - called _O2C_val_) and one for testing and training (90% - called _O2C_wide_tt_)
 O2C_wide_tt is then finally split into a training set (90% - called _O2C_train_) and a test set (10% - called _O2C_test_).
+
+Due to the fact that running the models takes a long time we have saved the models as created in the code online and will load the pre-trained models to safe time.
  
 ```{r modelling data setup}
+####### MODELING #######
+##### INITIALIZATION #####
+
 #### CREATE TRAINING, TESTING and VALIDATION SET
 ### drop all columns in O2C_wide, that are not used as predictors and factorize variables
 O2C_wide_final <- O2C_wide %>% mutate(itemID= as.factor(itemID),
-                                      )%>%
-                                select(-lt_000,
-                                -created_dt_A000,
-                                -created_dt_A105,
-                                -created_dt_A400,
-                                -salesID,
-                                -PROJID)
+)%>%
+  select(-lt_000,
+         -created_dt_A000,
+         -created_dt_A105,
+         -created_dt_A400,
+         -salesID,
+         -PROJID)
 
 
 ### Split O2C into 10% Validation and 90% main data set
@@ -841,6 +1002,14 @@ test_index <- createDataPartition(y = O2C_wide_tt$lt_105, times = 1, p = 0.1, li
 O2C_test <- O2C_wide_tt[test_index,]
 O2C_train <- O2C_wide_tt[-test_index,]
 
+### create a small data subset to tryout code fast
+set.seed(1, sample.kind="Rounding")
+try_index <- createDataPartition(y = O2C_train$lt_105, times = 1, p = 0.01, list = FALSE)
+O2C_try <- O2C_train [try_index,]
+
+# load arm-library, because it caused conflicts with dplyr in select
+library(arm)
+
 ```
 
 Secondly the target function is defined. As we are aiming to minimize the rooted mean square error (RMSE) the function is defined as follows:
@@ -851,7 +1020,7 @@ RMSE <- function(true_ratings, predicted_ratings){
 }
 ```
 
-The last two intitialisation procedures include calculating the mean rating (as it is used for quite a few of the model calculations) and setting up a dataframe to compare the results of the different models.
+The last two initialization procedures include calculating the mean rating (as it is used for quite a few of the model calculations) and setting up a dataframe to compare the results of the different models.
 
 ```{r mu_dataframe, echo=TRUE}
 #Calculate Mu (average)
@@ -866,40 +1035,290 @@ rmse_results <- data.frame(method = character(),
 ```
 
 
-### Primitive models
-As a first baseline we use the overall average as a prediction
+### Primitive models  
+As a first baseline we use the overall average as a prediction. As we have seen in the analysis that average and median are quite different between direct sales and partner business we will also try a primitive prediction using two averages, one for direct sales and one for partner business
+```{r primitive models}
+##### MODEL 0 - PRIMITIVE #####
+#### MODEL 0.1 - AVERAGE ####
+avg_rmse <- RMSE(O2C_test$lt_105, mu)
+
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="0.1 - Average",
+                                     RMSE = avg_rmse ))
+rmse_results %>% knitr::kable()
 
 
-### Linear models
+#### MODEL 0.2 - separate AVERAGES FOR DS/PB####
+#calculate separate avg per business model
+DS_avg <- mean(O2C_train %>% filter(DS.PB=="DS")%>%.$lt_105)
+PB_avg <- mean(O2C_train %>% filter(DS.PB=="PB")%>%.$lt_105)
+
+#predict according to business model
+DSPB_avg_pred <- ifelse(O2C_test$DS.PB =="DS", DS_avg, PB_avg)
+DSPB_avg_rmse <- RMSE(O2C_test$lt_105, DSPB_avg_pred)
+
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="0.2 - Average by DS/PB",
+                                     RMSE = DSPB_avg_rmse ))
+rmse_results %>% knitr::kable()
+```
+
+As we can see the baseline is an RMSE of approx. 66.5. By using two averages the RMSE can already be reduced to 55 which is a reduction of 11 points or approx 15%. However the RMSE is still approximately double the size of the average lead time for partner business. 
+
+### Linear models  
+As representatives of linear models we will use the multilinear regression and Bayes-glm. The following tables show the RMSE´s for the two methods.
+We see that the results improve using LM by over 5 points (>10%).
+Bayes GLM takes a long time to run so we decided to reduce the time needed by only using half the data and instead of using 25 resamples as caret standard we use cross-validation with 3 folds. The result is slightly below 50 which is approximately on the same level as lm.
+
+```{r linear models}
+##### MODELS 1 - LINEAR MODELS
+#### MODEL 1.1 - LM ####
+
+#read model
+readRDS(file="./models/lm_train.rda") 
+
+# predict results in test data set
+model1.1_predict <- predict(lm_train, O2C_test)
+model1.1_rmse <- RMSE(O2C_test$lt_105, model1.1_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="1.1 - LM",
+                                     RMSE = model1.1_rmse ))
+rmse_results %>% knitr::kable()
 
 
 
-### Trees & Rules
+
+
+#### MODEL 1.2 - Bayes GLM ####
+
+# save model to use it in the markup file
+saveRDS(bglm_train, file="./models/bglm_train.rda")
+
+#predict target values and calculate RMSE
+model1.2_predict <- predict(bglm_train, O2C_test, type = "raw")
+model1.2_rmse <- RMSE(O2C_test$lt_105, model1.2_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="1.2 - bayes GLM",
+                                     RMSE = model1.2_rmse))
+
+rmse_results %>% knitr::kable()
+
+```
+
+### Non-linear models
+As the next group of models to use we will work with non-linear models, namely k-nearest neighbors (knn) and support vector machines (svm). Both turn out to take a long time to run and cause problems using the full amount of training data. 
+
+Using kNN requires to choose the right k, meaning to define the size of the groups of observations that will be combined as one prediction. First tries resulted in aborted simulations due to too many neighbors (>1000).  
+Running SVM on the full training data set resulted in a crash of R. In order to have a basic model available we reduced the p-value for both models to 0.05, so only 5% of the training data set. 
+
+The results are much worse compared to the other approaches.
+
+
+```{r non_linear models}
 
 
 
-### Ensembles
-One approach is to build a prediction based on the different predictions of the models and weighted by the RMSE. A model wth a lower overall RMSE has a higher weight. 
+```
 
 
 
+### Trees & Rules  
 
+Last but not least We will try regression trees and random forests as prediction methods. 
+Using the rpart-library we will first run a model to tune for the right parameter of cp and run create a tree based on the best performing model. The results can be seen below.
+
+
+```{r trees and rules}
+
+##### MODELS 3 - TREES & RULES #####
+
+#### MODEL 3.1 - CART ####
+
+# load model to use it in the markup file
+loadRDS(cart_train, file="./models/cart_train.rda")
+
+# predict results in test data set
+model3.1_predict <- predict(cart_train, O2C_test)
+model3.1_rmse <- RMSE(O2C_test$lt_105, model3.1_predict)
+
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="3.1 - CART",
+                                     RMSE = model3.1_rmse ))
+rmse_results %>% knitr::kable()
+
+
+```
+
+To find the best random forest we also use a tuning run, using the rborist package and finding the lowest RMSE for cp and amount of randomly selected predictors. Below you can see the performance comparison for different values as well as the results for the best performing model. The final RMSE is added to the comparison table. 
+```{r random forest}
+#### MODEL 3.2 - RANDOM FOREST #### 
+
+#load model data of first run with CV and different parameters
+readRDS(file="./models/train_rf.rda")
+
+#plot performance of different parameters
+ggplot(train_rf)
+
+#show best tuning parameters
+train_rf$bestTune
+
+
+#load model with best tuning parameters from above
+readRDS(file="./models/rf_train.rda")
+
+
+# predict results in test data set
+model3.2_predict <- predict(rf_train, O2C_test)
+model3.2_rmse <- RMSE(O2C_test$lt_105, model3.2_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="3.2 - Random Forest",
+                                     RMSE = model3.2_rmse ))
+rmse_results %>% knitr::kable()
+
+
+```
+
+
+
+\newpage
 # Results
-The results show that the RMSE is quite high and doesn´t allow for a very precise prediction. The main reason lies in variation that cannot be explained by the provided predictors.
+The results show that the RMSE is quite high and doesn´t allow for a precise prediction at all. The main reason lies in variation that cannot be explained by the provided predictors. 
+
+We use the best performing model (random forest) on the validation set and add the results to the overview:
+```{r validation}
+####### VALIDATION #######
+#best performing model used to do predictions in O2C_val
+
+final_predict <- predict(rf_train, O2C_val)
+final_rmse <- RMSE(O2C_val$lt_105, final_predict)
+
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Validation",
+                                     RMSE = final_rmse ))
+
+####### Results #######
+#visualization of RMSE´s
+
+rmse_results %>% ggplot(aes(x=method, y=RMSE)) +
+  geom_bar(stat="identity")
+
+```
 
 
-# Conclusion
-Once we test the best performing model on the validation set we come up with a total RMSE of `r `
-We can see that the RMSE is bigger then the avg lead time for partner business. We conclude that the CV
+
+The following graphs show the comparison of predicted values vs. actual values of lead time. Overall, no model is sufficiently capable of predicting orders with a high lead time correctly. 
+```{r results, , out.width="50%"}
+
+#plot predicted vs true data 0.2
+df <- data.frame(pred = DSPB_avg_pred, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (DS/PB-AVG)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+#plot predicted vs true data 1.1
+df <- data.frame(pred = model1.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+         geom_point(alpha=0.6)+
+         labs(title="predicted vs. true (multilinear regression)", x="predicted",y="actual")+
+         geom_abline(intercept=0,slope=1)+
+         xlim(-100, 1200)+
+         ylim(0, 1200)
+
+#plot predicted vs true data 1.2
+df <- data.frame(pred = model1.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Bayes GLM)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+#plot predicted vs true data 2.1
+#df <- data.frame(pred = model2.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+#  geom_point(alpha=0.6)+
+#  labs(title="predicted vs. true (kNN)", x="predicted",y="actual")+
+#  geom_abline(intercept=0,slope=1)+
+#  xlim(-100, 1200)+
+#  ylim(0, 1200)
+
+#plot predicted vs true data 2.2
+#df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+#  geom_point(alpha=0.6)+
+#  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
+#  geom_abline(intercept=0,slope=1)+
+#  xlim(-100, 1200)+
+#  ylim(0, 1200)
+
+#plot predicted vs true data 3.1
+df <- data.frame(pred = model3.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (CART - decision tree)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+#plot predicted vs true data 3.2
+df <- data.frame(pred = model3.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Random Forest)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+#plot predicted vs true data final
+df <- data.frame(pred = final_predict, actual=O2C_val$lt_105, DS.PB = O2C_val$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Validation)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+```
+
+
+\newpage
+# Conclusion  
+
+Once we test the best performing model on the validation set we come up with a total RMSE of `r final_rmse`
+We can see that the RMSE is bigger then the avg lead time for partner business. We conclude that based on the used data and methods we *do not reach the target* of predicting lead time with a satisfying RMSE. 
 
 
 ## Limitations  
-Limitations of this project are the consistancy of data, e.g. the different handling of orders in different countries, which makes it hard to find common rules for data preparation. 
+Limitations of this project are the consistency of data, e.g. the different handling of orders in different countries, which makes it hard to find common rules for data preparation. Secondly, data wrangling could be improved by diving deeper into the specifics of how orders are being kept and treated in the system. The system doesn´t recognize orders that are part of big projects. SOme orders need to wait for all other orders within a projects until it gets invoiced. 
 
 ## Next steps  
-Suggested next steps can be categorized in two buckets:  
+Improving the algorithm would be possible by categorizing lead time into bins. That would enable us to use more methods like QDA, LDA, GLM, and alike.
+
+Talking about practical next steps within the company all suggested measures can be categorized in two buckets:  
 1. Improvement based on the outcome  
-Based on the outcomes and the conclusion the project results will be integrated in focussed task force improvements in the Sales department.
+Based on the outcomes and the conclusion the project results will be integrated in focused task force improvements in the Sales department.  
+
 2. System adaptation to integrate data analysis based on this report into daily business and leadership processes  
 System adaptations could involve tracking particular key performance indicator (KPI) within shopfloor management. Further a prediction system could be improved by excluding outliers from data and therefore reduce variation of data.
 As the company is currently implementing process updates along with a new Core ERP the focus on aligned, cross-departmental processes is given and the results of this project can be used to specify process and system requirements.

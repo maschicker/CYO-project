@@ -2,26 +2,27 @@
 ######### HarvardX - DATA SCIENCE ########
 
 #######INSTALL PACKAGES#######
-if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
-if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
 if(!require(gam)) install.packages("gam", repos = "http://cran.us.r-project.org")
 if(!require(hablar)) install.packages("hablar", repos = "http://cran.us.r-project.org")
 if(!require(rcompanion)) install.packages("rcompanion", repos = "http://cran.us.r-project.org")
 if(!require(corrr)) install.packages("corrr", repos = "http://cran.us.r-project.org")
 if(!require(ggridges)) install.packages("ggridges", repos = "http://cran.us.r-project.org")
+if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-project.org")
+if(!require(arm)) install.packages("arm", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(googledrive)) install.packages("googledrive", repos = "http://cran.us.r-project.org")
 
 
 
 library(tidyverse)
 library(caret)
 library(data.table)
-library(dplyr)
 library(stringr)
 library(ggplot2)
 library(lubridate)
-library(corrplot)
 library(rpart)
 library(matrixStats)
 library(gam)
@@ -29,6 +30,9 @@ library(splines)
 library(hablar)
 library(rcompanion)
 library(ggridges)
+library(Rborist)
+library(dplyr)
+library(googledrive)
 
 options(scipen = 999)
 
@@ -38,8 +42,6 @@ options(scipen = 999)
 dl <- tempfile()
 download.file("http://marcoschicker.de/data/O2C.csv", dl)
 df_O2C <- read.csv(dl)
-
-### adapt classes
 
 
 ### load project data
@@ -161,20 +163,20 @@ O2C_wide <- O2C %>% pivot_wider(
 ### Drop duration columns, as they are only needed for lead time calculation
 
 O2C_wide <- O2C_wide %>% mutate(order_complete = (!is.na(created_dt_A400)),
-                                lt_105 = as.numeric(difftime(created_dt_A400, created_dt_A105, units = "days"))+days_on_status_A400,
-                                lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400,
+                                lt_105 = round(as.numeric(difftime(created_dt_A400, created_dt_A105, units = "days"))+days_on_status_A400, 0),
+                                lt_000 = round(as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400, 0),
                                 start_year = as.factor(year(created_dt_A000)),
                                 start_month = as.factor(month(created_dt_A000)),
                                 sum_m2 = round(sum_m2,0)
-                                ) %>%
-                          select(-days_on_status_A000,
-                                 -days_on_status_A100,
-                                 -days_on_status_A105,
-                                 -days_on_status_A300,
-                                 -days_on_status_A330,
-                                 -days_on_status_A340,
-                                 -days_on_status_A310
-                                )
+) %>%
+  select(-days_on_status_A000,
+         -days_on_status_A100,
+         -days_on_status_A105,
+         -days_on_status_A300,
+         -days_on_status_A330,
+         -days_on_status_A340,
+         -days_on_status_A310
+  )
 
 
 ### investigate new data frame
@@ -254,16 +256,25 @@ O2C_wide %>% group_by(division, start_year)%>%
 # for all FH-orders ==> copy A000 timestamp to A105
 O2C_wide <- O2C_wide %>% mutate(created_dt_A105 = ifelse(division=="FH" & is.na(created_dt_A105), created_dt_A000, created_dt_A105))
 
+
 # for all other divisions ==> erase rows w/NA in column "created_dt_A105"
 O2C_wide <- O2C_wide %>% filter(!is.na(created_dt_A105))
 
 # recalculate lt_105 and lt_000
-O2C_wide <- O2C_wide %>% mutate(lt_105 = as.numeric(difftime(created_dt_A400, as_datetime(created_dt_A105), units = "days"))+days_on_status_A400,
-                                lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400) %>%
+O2C_wide <- O2C_wide %>% mutate(created_dt_A105 = as.POSIXct(created_dt_A105, tz="UTC",origin="1970-01-01"),
+                                lt_000 = as.numeric(difftime(created_dt_A400, created_dt_A000, units = "days"))+days_on_status_A400,
+                                lt_105 = as.numeric(difftime(created_dt_A400, created_dt_A105, units="days"))) %>%
   select(-days_on_status_A400)
 
 #amount of erased rows with NA in A105-timestamp
 noA105_salesID <- rem_orders - nrow(O2C_wide)
+rem_orders <- nrow(O2C_wide)
+
+
+### Lead time <=0
+O2C_wide <- O2C_wide %>% filter(lt_105 > 0 )
+#amount of erased rows with lt<=0
+lt_0_salesID <- rem_orders - nrow(O2C_wide)
 
 
 ### removing predictors with non-unique values or zero-variation
@@ -284,16 +295,18 @@ prop_salesID <- nrow(O2C_wide)/orig_salesID
 
 
 
+
+
 ####### DATA VISUALIZATION #######
 
 
-# How many different orders total/per year / per country
+### How many different orders total/per year / per country
 O2C_wide %>% ggplot(aes(x=start_year))+
   geom_bar()+
   facet_grid(country~DS.PB)
 
 
-# difference between LT105 and LT000
+### difference between LT105 and LT000
 O2C_wide %>% mutate(lt_diff = lt_000-lt_105) %>%  
   ggplot(aes(x=lt_diff))+
   geom_histogram(binwidth = 1)+
@@ -304,6 +317,20 @@ O2C_wide %>% mutate(lt_diff = lt_000-lt_105) %>%
 
 
 
+
+### Lead time histogram and density
+O2C_wide %>% 
+  ggplot(aes(x=lt_105, y=DS.PB, fill=DS.PB,))+
+  geom_density_ridges(alpha=0.3, stat="binline", binwidth=2)+
+  stat_density_ridges(alpha=0.6,
+                      quantile_lines = TRUE,
+                      quantiles = c(0.05, 0.5, 0.95),
+                      scale = 1)+
+  theme_ridges()+
+  theme(legend.position="none",
+        panel.spacing = unit(0.1, "lines"))+
+  xlim(0,500)+
+  labs(title = "Lead Time by Business model w/ 5%/50%/95%-quantile", x="", y="")
 
 
 ### mixed correlation as provided on stackoverflow: ###
@@ -367,7 +394,12 @@ d <- data.frame(country = O2C_wide$country,
                 channel_name = O2C_wide$channel_name
 )
 d_corr <- mixed_assoc(d) # <== use for numerical analysis
-d_corr
+
+# convert d_corr into classical correlation matrix
+#pivot_wider(d_corr, 
+#           id_cols = x,
+#           names_from = y,
+#           values_from = assoc)
 
 # create a networkplot
 d_corr %>%
@@ -380,9 +412,9 @@ d_corr %>%
 
 
 
-### days on status per status - distribution deep dive for DS.PB und over time
+### days on status per status - distribution deep dive for DS.PB and over time
 
-# ridgeline for quick overview by DS.PB
+## ridgeline for quick overview by DS.PB
 O2C %>% mutate(year= year(created_dt),
                month=month(created_dt),
 )%>%
@@ -398,7 +430,7 @@ O2C %>% mutate(year= year(created_dt),
   labs(title = "Days on status by Business model w/ 5%/95%-quantile", x="")+
   facet_grid(.~DS.PB)
 
-# Boxplot for different Business models per year
+## Boxplot for different Business models per year
 O2C %>% mutate(year= year(created_dt),
                month=month(created_dt),
 )%>%
@@ -411,7 +443,7 @@ O2C %>% mutate(year= year(created_dt),
   scale_y_log10()+
   facet_grid(year~DS.PB)
 
-# ridgeline for quick overview by country
+## ridgeline for quick overview by country
 O2C %>% mutate(year= year(created_dt),
                month=month(created_dt),
 )%>%
@@ -430,7 +462,7 @@ O2C %>% mutate(year= year(created_dt),
 
 
 
-# lead time per order DV/FH
+### lead time per order DV/FH
 O2C_wide %>% group_by(DS.PB)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -447,7 +479,7 @@ O2C_wide %>% group_by(DS.PB)%>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-# lead time per division
+### lead time per division
 O2C_wide %>% group_by(division)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -463,7 +495,7 @@ O2C_wide %>% group_by(division)%>%
        color = "")+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# lead time per channel_name
+### lead time per channel_name
 O2C_wide %>% group_by(channel_name)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -482,7 +514,7 @@ O2C_wide %>% group_by(channel_name)%>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-# lead time per start year
+### lead time per start year
 O2C_wide %>% group_by(start_year)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -498,7 +530,7 @@ O2C_wide %>% group_by(start_year)%>%
        color = "")+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# lead time per start month
+### lead time per start month
 O2C_wide %>% group_by(start_month)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -514,7 +546,7 @@ O2C_wide %>% group_by(start_month)%>%
        color = "")+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-#lead time per itemID
+###lead time per itemID
 O2C_wide %>% group_by(itemID)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -532,7 +564,7 @@ O2C_wide %>% group_by(itemID)%>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-#lead time per order size QTY
+###lead time per order size QTY
 O2C_wide %>% group_by(sum_qty)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -549,7 +581,7 @@ O2C_wide %>% group_by(sum_qty)%>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   scale_x_log10()
 
-#lead time per order size m²
+###lead time per order size m²
 O2C_wide %>% group_by(sum_m2)%>%
   summarize(n=n(),
             avg=mean(lt_105),
@@ -568,26 +600,26 @@ O2C_wide %>% group_by(sum_m2)%>%
 
 
 
-  
-  
-# raster itemID vs. country/division, colored by lt_105
-  
+
+
+### raster itemID vs. country/division, colored by lt_105
+
 O2C_wide %>% ggplot(aes(x=country, y=as.factor(itemID), fill=lt_105))+
-              geom_raster()+
-              scale_fill_gradient2(limits=c(0,100),
-                                   low="blue", 
-                                   mid="yellow", 
-                                   high="red", 
-                                   midpoint = 20)+
-              labs(title="Lead time per item and country",
-                   x="",
-                   y="items",
-                   fill = "Lead time [days]"
-                   )+
-              theme(axis.text.y = element_blank(),
-                    axis.ticks.y = element_blank(),
-                    axis.text.x = element_text(angle = 45, hjust = 1)
-                    )
+  geom_raster()+
+  scale_fill_gradient2(limits=c(0,100),
+                       low="blue", 
+                       mid="yellow", 
+                       high="red", 
+                       midpoint = 20)+
+  labs(title="Lead time per item and country",
+       x="",
+       y="items",
+       fill = "Lead time [days]"
+  )+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 
 
 
@@ -598,13 +630,15 @@ O2C_wide %>% ggplot(aes(x=country, y=as.factor(itemID), fill=lt_105))+
 #### CREATE TRAINING, TESTING and VALIDATION SET
 ### drop all columns in O2C_wide, that are not used as predictors and factorize variables
 O2C_wide_final <- O2C_wide %>% mutate(itemID= as.factor(itemID),
-                                      )%>%
-                                select(-lt_000,
-                                -created_dt_A000,
-                                -created_dt_A105,
-                                -created_dt_A400,
-                                -salesID,
-                                -PROJID)
+)%>%
+  select(-lt_000,
+         -created_dt_A000,
+         -created_dt_A105,
+         -created_dt_A400,
+         -salesID,
+         -PROJID,
+         -start_month,
+         -sum_qty)
 
 
 ### Split O2C into 10% Validation and 90% main data set
@@ -621,7 +655,7 @@ O2C_train <- O2C_wide_tt[-test_index,]
 
 ### create a small data subset to tryout code fast
 set.seed(1, sample.kind="Rounding")
-try_index <- createDataPartition(y = O2C_train$lt_105, times = 1, p = 0.01, list = FALSE)
+try_index <- createDataPartition(y = O2C_train$lt_105, times = 1, p = 0.05, list = FALSE)
 O2C_try <- O2C_train [try_index,]
 
 
@@ -630,37 +664,83 @@ RMSE <- function(true_ratings, predicted_ratings){
   sqrt(mean((true_ratings - predicted_ratings)^2))
 }
 
-#Calculate Mu (average)
+#Calculate Mu (average) and Med (Median)
 mu <- mean(O2C_train$lt_105) 
 mu
+med <- median(O2C_train$lt_105)
+med
 
 #set up results dataframe
 rmse_results <- data.frame(method = character(),
                            RMSE = numeric())
 
-#str(rmse_results)
 
 
+# load arm-library, because it caused conflicts with dplyr in select if 
+library(arm)
 
+### load pre-trained models if they do not exist in the right folder, yet 
+# create folder "models" in wd()
+dir.create("./models", showWarnings = FALSE)
+
+#load tuned and trained models
+
+# lm
+url <- "https://drive.google.com/uc?export=download&id=1Ghnuax98AjMYIfgTX_gXJEvNVlymQJ92"
+drive_download(
+  url,
+  path="./models/test/lm_train.rda",
+  overwrite=FALSE
+)
+
+# bglm
+url <- "https://drive.google.com/uc?export=download&id=1QE5ytVE-CQ3S9oHD3QY8evUsKV0vbqFE"
+drive_download(
+  url,
+  path="./models/bglm_train.rda",
+  overwrite=FALSE
+)
+
+
+# CART
+url <- "https://drive.google.com/uc?export=download&id=1doJnae8e2RAZDEioxKidiDv5Ww67EQaR"
+drive_download(
+  url,
+  path="./models/CART_train.rda",
+  overwrite=FALSE
+)
+
+
+# rf_tune
+url <- "https://drive.google.com/uc?export=download&id=1fkMUjxVprOdf_KHh_zkrgrP-yGMGCtzL"
+drive_download(
+  url,
+  path="./models/train_rf.rda",
+  overwrite=FALSE
+)
+# rf
+url <- "https://drive.google.com/uc?export=download&id=1jY3k7TJFfQGp0DDqSoD2B8wD-FGYHJwT"
+drive_download(
+  url,
+  path="./models/fr_train.rda",
+  overwrite=FALSE
+)
 
 
 
 ###### MODELS ######
-
-#### MODEL 1 - AVERAGE ####
+##### MODEL 0 - PRIMITIVE #####
+#### MODEL 0.1 - AVERAGE ####
 avg_rmse <- RMSE(O2C_test$lt_105, mu)
 
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
-                          data_frame(method="1 - Average",
+                          data_frame(method="0.1 - Average",
                                      RMSE = avg_rmse ))
 rmse_results %>% knitr::kable()
 
 
-
-
-
-#### MODEL 2 - separate AVERAGES FOR DS/PB####
+#### MODEL 0.2 - separate AVERAGES FOR DS/PB####
 #calculate separate avg per business model
 DS_avg <- mean(O2C_train %>% filter(DS.PB=="DS")%>%.$lt_105)
 PB_avg <- mean(O2C_train %>% filter(DS.PB=="PB")%>%.$lt_105)
@@ -671,107 +751,316 @@ DSPB_avg_rmse <- RMSE(O2C_test$lt_105, DSPB_avg_pred)
 
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
-                          data_frame(method="2 - Average by DS/PB",
+                          data_frame(method="0.2 - Average by DS/PB",
                                      RMSE = DSPB_avg_rmse ))
 rmse_results %>% knitr::kable()
 
+#plot predicted vs true data
+df <- data.frame(pred = DSPB_avg_pred, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (DS/PB-AVG)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 
-#### MODEL 3 - LDA ####
+##### MODELS 1 - LINEAR MODELS
+#### MODEL 1.1 - LM ####
 set.seed(1, sample.kind = "Rounding")
-lda_train <- train(lt_105 ~division, method = "lda", data = O2C_try)
-lda_predict <- predict(lda_train, O2C_test)
+lm_train <- train(lt_105 ~ ., 
+                  method = "lm", 
+                  data = O2C_train)
+
+# save model to use it in the markup file
+saveRDS(lm_train, file="./models/lm_train.rda")
+
+# predict results in test data set
+model1.1_predict <- predict(lm_train, O2C_test)
+model1.1_rmse <- RMSE(O2C_test$lt_105, model1.1_predict)
 
 # add results to dataframe to compare performance of models#
 rmse_results <- bind_rows(rmse_results,
-                          data_frame(method="2 - Average by DS/PB",
-                                     RMSE = DSPB_avg_rmse ))
+                          data_frame(method="1.1 - LM",
+                                     RMSE = model1.1_rmse ))
+rmse_results %>% knitr::kable()
+
+#plot predicted vs true data
+df <- data.frame(pred = model1.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (multilinear regression)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+
+
+#### MODEL 1.2 - Bayes GLM ####
+set.seed(1, sample.kind = "Rounding")
+
+control <- trainControl(method = "cv", number = 3, p = .5)
+bglm_train <- train(lt_105 ~ ., 
+                    method = "bayesglm", 
+                    data = O2C_train,
+                    trControl = control
+)
+
+
+# save model to use it in the markup file
+saveRDS(bglm_train, file="./models/bglm_train.rda")
+
+#predict target values and calculate RMSE
+model1.2_predict <- predict(bglm_train, O2C_test, type = "raw")
+model1.2_rmse <- RMSE(O2C_test$lt_105, model1.2_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="1.2 - bayes GLM",
+                                     RMSE = model1.2_rmse))
+
+rmse_results %>% knitr::kable()
+
+#plot predicted vs true data
+df <- data.frame(pred = model1.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Bayes GLM)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+
+
+
+
+##### MODELS 2 - NON-LINEAR MODELS #####
+
+#### MODEL 2.1 - kNN #### <== open,...too many ties or session abort
+set.seed(1, sample.kind = "Rounding")
+
+control <- trainControl(method = "cv", number = 5, p = .9)
+knn_cv_train <- train(lt_105 ~ ., 
+                      method = "knn", 
+                      data = O2C_try,
+                      tuneGrid = data.frame(k = seq(3,15,3)),
+                      trControl = control)
+
+knn_cv_train$results %>% 
+  ggplot(aes(x = k, y = RMSE)) +
+  geom_line() +
+  geom_point()
+
+
+
+
+# save model to use it in the markup file
+saveRDS(knn_cv_train, file="./models/knn_cv_train.rda")
+
+#predict target values and calculate RMSE
+model2.1_predict <- predict(knn_cv_train, O2C_test, type = "raw")
+model2.1_rmse <- RMSE(O2C_test$lt_105, model2.1_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="2.1 - knn_CV",
+                                     RMSE = model2.1_rmse))
+
 rmse_results %>% knitr::kable()
 
 
+#plot predicted vs true data
+df <- data.frame(pred = model2.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
 
-#### MODEL 4 - QDA ####
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (kNN)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+
+
+
+#### MODEL 2.2 - SVM #### <== R fatal error
 set.seed(1, sample.kind = "Rounding")
-train_qda <- train(Survived ~Fare, method = "qda", data = train_set)
-y_hat_qda <- predict(train_qda, test_set)
 
-#### Logistic regression based on Age
+control <- trainControl(method = "cv", number = 3, p = .5)
+svm_train <- train(lt_105 ~ channel_name+itemID+sum_m2+division+country, 
+                   method = "svmLinear", 
+                   trControl=control,
+                   data = O2C_train
+)
+
+# save model to use it in the markup file
+saveRDS(knn_cv_train, file="./models/svm_train.rda")
+
+#predict target values and calculate RMSE
+model2.2_predict <- predict(svm_train, O2C_test, type = "raw")
+model2.2_rmse <- RMSE(O2C_test$lt_105, model2.2_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="2.2 - svm",
+                                     RMSE = model2.2_rmse))
+
+rmse_results %>% knitr::kable()
+
+#plot predicted vs true data
+df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
+
+
+
+
+
+
+
+
+##### MODELS 3 - TREES & RULES #####
+
+#### MODEL 3.1 - CART ####
 set.seed(1, sample.kind = "Rounding")
-train_glm <- train(Survived ~Age, method = "glm", data = train_set)
-y_hat_glm <- predict(train_glm, test_set)
+
+tune_cart <- train(lt_105 ~ ., 
+                   method = "rpart", 
+                   tuneGrid = data.frame(cp = seq(0.005, 0.04, len = 10)),
+                   data = O2C_train
+)
+# plot the tune-grid  
+ggplot(tune_cart)
+
+# plot decision tree
+plot(tune_cart$finalModel, margin = 0.1)
+text(tune_cart$finalModel, cex = 0.75)
+
+
+
+set.seed(1, sample.kind = "Rounding")
+# train with optimized parameters
+cart_train <- train(lt_105 ~ ., 
+                    method = "rpart", 
+                    tuneGrid = expand.grid(cp = tune_cart$bestTune$cp),
+                    data = O2C_train
+)
+
+
+# save model to use it in the markup file
+saveRDS(cart_train, file="./models/cart_train.rda")
+
+# predict results in test data set
+model3.1_predict <- predict(cart_train, O2C_test)
+model3.1_rmse <- RMSE(O2C_test$lt_105, model3.1_predict)
+
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="3.1 - CART",
+                                     RMSE = model3.1_rmse ))
+rmse_results %>% knitr::kable()
+
+
+#plot predicted vs true data
+df <- data.frame(pred = model3.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (CART - decision tree)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 
 
 
 
-#### MODEL X - RANDOM FOREST #### <== open
-library(Rborist)
-control <- trainControl(method="cv", number = 5, p = 0.8)
-grid <- expand.grid(minNode = c(1,5) , predFixed = c(10, 15, 25, 35, 50))
-train_rf <-  train(x[, col_index], y,
+#### MODEL 3.2 - RANDOM FOREST #### 
+
+set.seed(1, sample.kind = "Rounding")
+control <- trainControl(method="cv", number = 10, p = 0.5)
+grid <- expand.grid(minNode = c(3, 15, 20, 30) , predFixed = c(10, 15, 25, 35, 50))
+train_rf <-  train(lt_105~.,
                    method = "Rborist",
-                   nTree = 50,
+                   nTree = 100,
                    trControl = control,
                    tuneGrid = grid,
-                   nSamp = 5000)
+                   data = O2C_train)
 ggplot(train_rf)
-train_rf$bestTune
+#train_rf$bestTune
+#save big model in case of crash
+saveRDS(train_rf, file="./models/train_rf.rda")
 
-fit_rf <- Rborist(x[, col_index], y,
-                  nTree = 1000,
-                  minNode = train_rf$bestTune$minNode,
-                  predFixed = train_rf$bestTune$predFixed)
+tmp <- gc() #garbage collection to free memory
+# repeat above with best-tune parameters
+set.seed(1, sample.kind = "Rounding")
+rf_train <- train(lt_105~.,
+                  method = "Rborist",
+                  nTree = 100,
+                  trControl = control,
+                  tuneGrid = expand.grid(minNode = train_rf$bestTune$minNode,
+                                         predFixed = train_rf$bestTune$predFixed),
+                  data = O2C_train)
 
-y_hat_rf <- factor(levels(y)[predict(fit_rf, x_test[ ,col_index])$yPred])
+# save model to use it in the markup file
+saveRDS(rf_train, file="./models/rf_train.rda")
+
+# predict results in test data set
+
+model3.2_predict <- predict(rf_train, O2C_test)
+model3.2_rmse <- RMSE(O2C_test$lt_105, model3.2_predict)
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="3.2 - Random Forest",
+                                     RMSE = model3.2_rmse ))
+rmse_results %>% knitr::kable()
+
+#plot predicted vs true data
+df <- data.frame(pred = model3.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Random Forest)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 
-#### ENSEMBLES #### <== open
+####### VALIDATION #######
+#best performing model used to do predictions in O2C_val
+final_predict <- predict(rf_train, O2C_val)
+final_rmse <- RMSE(O2C_val$lt_105, final_predict)
 
-models <- c("glm", "lda", "naive_bayes", "svmLinear", "knn", "gamLoess", "multinom", "qda", "rf", "adaboost")
+# add results to dataframe to compare performance of models#
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Validation",
+                                     RMSE = final_rmse ))
+rmse_results %>% knitr::kable()
 
-library(caret)
-library(dslabs)
-library(tidyverse)
-# set.seed(1) # if using R 3.5 or earlier
-set.seed(1, sample.kind = "Rounding") # if using R 3.6 or later
-data("mnist_27")
+#plot predicted vs true data
+df <- data.frame(pred = final_predict, actual=O2C_val$lt_105, DS.PB = O2C_val$DS.PB)
 
-fits <- lapply(models, function(model){ 
-  print(model)
-  train(y ~ ., method = model, data = mnist_27$train)
-}) 
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (Validation)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
-names(fits) <- models
+####### Results #######
+#visualization of RMSE´s
+rmse_results %>% ggplot(aes(x=method, y=RMSE)) +
+  geom_bar(stat="identity")
 
 
-#Q2 - create matrix of predictions of each model
-set.seed(1, sample.kind = "Rounding") # if using R 3.6 or later
+# visualization use single pred vs actual graphs from above
 
-pred <- sapply(fits, function(object) 
-  predict(object, newdata = mnist_27$test))
-dim(pred)
-head(pred)
 
-#Q3 - compute accuracy for each model on the test set
-
-mean(pred == mnist_27$test$y)
-####official solution
-acc <- colMeans(pred == mnist_27$test$y)
-acc
-mean(acc)
-
-#Q4 - build an ensemble prediction by majority vote
-pred_en <- vector(length = nrow(pred))
-for(i in 1:nrow(pred)){
-  pred_en[i] <- ifelse(mean(pred[i,]=="7")>0.5, "7", "2")
-}
-mean(pred_en == mnist_27$test$y)
-####official solution
-votes <- rowMeans(pred == "7")
-y_hat <- ifelse(votes > 0.5, "7", "2")
-mean(y_hat == mnist_27$test$y)
-
-#Q5 - which individual models did better than the ensemble?
-ind <- acc > mean(y_hat == mnist_27$test$y)
-sum(ind)
-models[ind]
