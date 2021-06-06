@@ -1,7 +1,7 @@
 ---
 title: "CYO-project | HarvardX"
 author: "Marco Schicker"
-date: "14 5 2021"
+date: "06 06 2021"
 output: 
   pdf_document:
     toc: true
@@ -162,6 +162,18 @@ download.file(
 )
 #read model
 knn_cv_train <- readRDS(file="./models/knn_cv_train.rda")
+
+
+## SVM
+#download predictions
+url <- "http://marcoschicker.de/data/model2.2_predict.rda"
+download.file(
+  url,
+  destfile ="./predictions/model2.2_predict.rda",
+  overwrite=FALSE
+)
+#read predictions
+model2.2_predict <- readRDS(file="./predictions/model2.2_predict.rda") 
 
 
 ## CART
@@ -582,6 +594,7 @@ O2C_wide <- droplevels(O2C_wide)
 ### Various visualizations and explorations  
 #### Amount of orders and distribution among time and business model  
 
+We can see that direct sales is only active in country 2. The amount is higher compared to all other countries in total. We can also see that in 2021 there are no started and finished orders in country 3 and hardly any in country 4. Especially in country 3 we can observe a significant drop from 2018 to 2019 which is not plausible. A hypothesis is that the remaining orders have been deleted during cleaning because the practical handling of orders in the system is different compared to the other countries. The deep dive will not be done within this project but will be investigated separately.  
 
 ```{r orders per year}
 # How many different orders total/per year / per country
@@ -589,7 +602,7 @@ O2C_wide %>% ggplot(aes(x=start_year))+
   geom_bar()+
   facet_grid(country~DS.PB)
 ```
-We can see that direct sales is only active in country 2. The amount is higher compared to all other countries in total. We can also see that in 2021 there are no started and finished orders in country 3 and hardly any in country 4. Especially in country 3 we can observe a significant drop from 2018 to 2019 which is not plausible. A hypothesis is that the remaining orders have been deleted during cleaning because the practical handling of orders in the system is different compared to the other countries. The deep dive will not be done within this project but will be investigated separately. 
+
 
 #### Difference between LT_A000 and LT_A105
   
@@ -1154,19 +1167,15 @@ rmse_results %>% knitr::kable()
 ```
 
 ### Non-linear models
-As the next group of models to use we will work with non-linear models, namely k-nearest neighbors (knn) and support vector machines (svm). Both turn out to take a long time to run and cause problems using the full amount of training data. 
+As the next group of models to use we will work with non-linear models, namely k-nearest neighbors (knn) and support vector machines (svm). Both turn out to take a long time to run and cause problems using the full amount of training data. In order to have a basic model available we reduced the amount of data to only 5% of the training data set and also reduced predictors that had a high correlation. 
 
 Using kNN requires to choose the right k, meaning to define the size of the groups of observations that will be combined as one prediction. First tries resulted in aborted simulations due to too many neighbors (>1000). The reason is most likely that we have mainly categorical predictors and more than 200,000 observations, that can lead to the same distance for many cases. We use a first model to find out which k provides the best RMSE. You can see the comparison in the graph below.
 
-Running SVM on the full training data set resulted in a crash of R. 
-
-In order to have a basic model available we reduced the amount of data to only 5% of the training data set. 
-
-The results are worse than taking the split average (model 0.2). You can see the result for kNN below, SVM didn´t run successfully and will be left out for this project. 
+The results are much worse than using linear models. You can see the result for kNN and svm below. 
 
 
 ```{r non_linear models}
-####kNN###
+####kNN####
 
 
 # plot tuning parameters
@@ -1185,6 +1194,22 @@ model2.1_rmse <- RMSE(O2C_test$lt_105, model2.1_predict)
 rmse_results <- bind_rows(rmse_results,
                           data_frame(method="2.1 - knn",
                                      RMSE = model2.1_rmse))
+
+
+
+
+#### SVM ####
+
+# calculate RMSE
+model2.2_rmse <- RMSE(O2C_test$lt_105, model2.2_predict)
+
+
+
+# add results to dataframe to compare performance of models
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="2.2 - SVM",
+                                     RMSE = model2.2_rmse))
+
 
 rmse_results %>% knitr::kable()
 
@@ -1319,14 +1344,14 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
   ylim(0, 1200)
 
 #plot predicted vs true data 2.2
-#df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
+df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
 
-#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
-#  geom_point(alpha=0.6)+
-#  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
-#  geom_abline(intercept=0,slope=1)+
-#  xlim(-100, 1200)+
-#  ylim(0, 1200)
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 #plot predicted vs true data 3.1
 df <- data.frame(pred = model3.1_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)

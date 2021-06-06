@@ -676,8 +676,8 @@ rmse_results <- data.frame(method = character(),
 # load arm-library, because it caused conflicts with dplyr in select if 
 library(arm)
 
-### load pre-trained models if they do not exist in the right folder, yet 
-# create folder "models" in wd()
+### prepare for saving models and predictions
+# create folder "models" and "predictions"in wd()
 dir.create("./predictions", showWarnings = FALSE)
 dir.create("./models", showWarnings = FALSE)
 
@@ -796,14 +796,14 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
 
 ##### MODELS 2 - NON-LINEAR MODELS #####
 
-#### MODEL 2.1 - kNN #### <== open,...only works with reduced tryout data set
+#### MODEL 2.1 - kNN #### <== only works with reduced tryout data set
 set.seed(1, sample.kind = "Rounding")
 
 control <- trainControl(method = "cv", number = 5, p = .9)
 knn_cv_train <- train(lt_105 ~ ., 
                       method = "knn", 
                       data = O2C_try,
-                      tuneGrid = data.frame(k = seq(3,15,3)),
+                      tuneGrid = data.frame(k = seq(15,55,10)), # extended testing with more k in addition to report ==> experimental
                       trControl = control)
 
 knn_cv_train$results %>% 
@@ -843,7 +843,7 @@ ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
 
 
 
-#### MODEL 2.2 - SVM #### <== R fatal error, it works with very small data sets
+#### MODEL 2.2 - SVM #### <== only works with very small data sets
 set.seed(1, sample.kind = "Rounding")
 
 control <- trainControl(method = "cv", number = 3, p = .9)
@@ -854,11 +854,14 @@ svm_train <- train(lt_105 ~ channel_name+itemID+sum_m2+division+country,
 )
 
 # save model to use it in the markup file
-saveRDS(knn_cv_train, file="./models/svm_train.rda")
+saveRDS(svm_train, file="./models/svm_train.rda")
 
 # predict target values and calculate RMSE
 model2.2_predict <- predict(svm_train, O2C_test, type = "raw")
 model2.2_rmse <- RMSE(O2C_test$lt_105, model2.2_predict)
+
+# save prediction
+saveRDS(model2.2_predict, file="./predictions/model2.2_predict.rda")
 
 # add results to dataframe to compare performance of models
 rmse_results <- bind_rows(rmse_results,
@@ -868,16 +871,14 @@ rmse_results <- bind_rows(rmse_results,
 rmse_results %>% knitr::kable()
 
 #plot predicted vs true data
-#df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
-#
-#ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
-#  geom_point(alpha=0.6)+
-#  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
-#  geom_abline(intercept=0,slope=1)+
-#  xlim(-100, 1200)+
-#  ylim(0, 1200)
+df <- data.frame(pred = model2.2_predict, actual=O2C_test$lt_105, DS.PB = O2C_test$DS.PB)
 
-
+ggplot(df, aes(x=pred, y=actual, col=DS.PB))+
+  geom_point(alpha=0.6)+
+  labs(title="predicted vs. true (svm)", x="predicted",y="actual")+
+  geom_abline(intercept=0,slope=1)+
+  xlim(-100, 1200)+
+  ylim(0, 1200)
 
 
 
@@ -957,7 +958,7 @@ train_rf <-  train(lt_105~.,
                    data = O2C_train)
 ggplot(train_rf)
 #train_rf$bestTune
-#save big model in case of crash
+#save tune_model
 saveRDS(train_rf, file="./models/train_rf.rda")
 
 tmp <- gc() #garbage collection to free memory
@@ -975,8 +976,7 @@ rf_train <- train(lt_105~.,
 # save model to use it in the markup file
 saveRDS(rf_train, file="./models/rf_train.rda")
 
-# predict results in test data set
-
+# predict results in test data set and calculate RMSE
 model3.2_predict <- predict(rf_train, O2C_test)
 model3.2_rmse <- RMSE(O2C_test$lt_105, model3.2_predict)
 
