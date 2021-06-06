@@ -803,7 +803,7 @@ control <- trainControl(method = "cv", number = 5, p = .9)
 knn_cv_train <- train(lt_105 ~ ., 
                       method = "knn", 
                       data = O2C_try,
-                      tuneGrid = data.frame(k = seq(15,55,10)), # extended testing with more k in addition to report ==> experimental
+                      tuneGrid = data.frame(k = seq(3,15,3)), # extended testing with more k in addition to report ==> experimental
                       trControl = control)
 
 knn_cv_train$results %>% 
